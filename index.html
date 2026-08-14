@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudCollar — Пульт Управления</title>
+    <style>
+        /* Чистый CSS, который вшит в файл и не требует интернета */
+        body { background-color: #0f172a; color: #f8fafc; font-family: sans-serif; padding: 20px; }
+        .card { max-width: 500px; margin: 40px auto; background-color: #1e293b; padding: 24px; rounded-radius: 16px; border: 1px solid #334155; border-radius: 12px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5); }
+        h1 { text-align: center; color: #22d3ee; margin-top: 0; letter-spacing: 1px; }
+        #status { text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 20px; border-bottom: 1px solid #334155; padding-bottom: 12px; }
+        .status-ok { color: #34d399; }
+        .status-error { color: #f87171; }
+
+        .telemetry-box { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 20px; }
+        .telemetry-title { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .speed-value { font-size: 48px; font-weight: 900; color: #22d3ee; margin: 10px 0; }
+
+        .btn { width: 100%; font-weight: bold; padding: 14px; margin-bottom: 12px; border-radius: 8px; border: none; cursor: pointer; text-transform: uppercase; font-size: 14px; transition: 0.2s; }
+        .btn-start { background-color: #059669; color: white; }
+        .btn-start:hover { background-color: #10b981; }
+        .btn-speed { background-color: #0891b2; color: white; }
+        .btn-speed:hover { background-color: #06b6d4; }
+        .btn-stop { background-color: #dc2626; color: white; font-size: 15px; letter-spacing: 1px; animation: pulse 2s infinite; }
+        .btn-stop:hover { background-color: #ef4444; }
+        .btn:disabled { background-color: #475569; color: #94a3b8; cursor: not-allowed; }
+
+        footer h2 { font-size: 12px; color: #94a3b8; text-transform: uppercase; }
+        #logs { background-color: #0f172a; border-radius: 6px; padding: 10px; h-height: 140px; height: 140px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .log-error { color: #f87171; }
+        .log-sys { color: #34d399; }
+        .log-ctrl { color: #22d3ee; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(0.98); opacity: 0.9; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <header>
+            <h1>📝 CLOUDCOLLAR WEB-PANEL</h1>
+            <div id="status" class="status-error">● Подключение к серверу...</div>
+        </header>
+
+        <!-- Живое табло телеметрии -->
+        <section class="telemetry-box">
+            <div class="telemetry-title">Телеметрия ЧПУ в реальном времени:</div>
+            <div class="speed-container">
+                <span id="telemetry-speed" class="speed-value">0</span>
+                <span style="color: #94a3b8; font-weight: bold;">об/мин</span>
+            </div>
+            <div id="telemetry-status" class="log-error" style="font-size: 12px; margin-top: 5px; font-weight: bold;">СТАТУС: ДВИГАТЕЛЬ ОСТАНОВЛЕН</div>
+        </section>
+
+        <!-- Кнопки управления -->
+        <main>
+            <button onclick="sendCommand('start')" id="btn-start" class="btn btn-start" disabled>1 ➡️ Запустить двигатель (start)</button>
+            <button onclick="sendCommand('speed_up')" id="btn-speed" class="btn btn-speed" disabled>2 ➡️ Увеличить скорость +200 (speed_up)</button>
+            <button onclick="sendCommand('stop')" id="btn-stop" class="btn btn-stop" disabled>3 🚨 АВАРИЙНАЯ ОСТАНОВКА (stop)</button>
+        </main>
+
+        <!-- Журнал событий -->
+        <footer>
+            <h2>Лог действий веб-пульта:</h2>
+            <div id="logs"></div>
+        </footer>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById("status");
+        const logsEl = document.getElementById("logs");
+        const speedEl = document.getElementById("telemetry-speed");
+        const motorStatusEl = document.getElementById("telemetry-status");
+        const btnStart = document.getElementById("btn-start");
+        const btnSpeed = document.getElementById("btn-speed");
+        const btnStop = document.getElementById("btn-stop");
+
+        // Подключаемся к нашему серверу FastAPI
+        const ws = new WebSocket("ws://127.0.0.1:8000/ws/control");
+
+        ws.onopen = () => {
+            statusEl.innerText = "● Вы вошли в систему как Облачный Воротничок!";
+            statusEl.className = "status-ok";
+            btnStart.disabled = false;
+            btnSpeed.disabled = false;
+            btnStop.disabled = false;
+            addLog("Система", "Успешное подключение к облаку CloudCollar");
+        };
+
+        // Ловим входящие пакеты (включая телеметрию от станка)
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "telemetry") {
+                    // Обновляем большую цифру скорости на экране!
+                    speedEl.innerText = data.speed;
+
+                    if (data.is_motor_on) {
+                        motorStatusEl.innerText = "СТАТУС: РАБОТА ПОД НАГРУЗКОЙ";
+                        motorStatusEl.style.color = "#34d399";
+                    } else {
+                        motorStatusEl.innerText = "СТАТУС: ДВИГАТЕЛЬ ОСТАНОВЛЕН";
+                        motorStatusEl.style.color = "#f87171";
+                    }
+                }
+            } catch (e) {
+                // Игнорируем не-JSON сообщения, если они есть
+            }
+        };
+
+        ws.onclose = () => {
+            statusEl.innerText = "● Связь с сервером потеряна";
+            statusEl.className = "status-error";
+            btnStart.disabled = true;
+            btnSpeed.disabled = true;
+            btnStop.disabled = true;
+            addLog("Ошибка", "Соединение разорвано");
+        };
+
+        function addLog(source, text) {
+            const time = new Date().toLocaleTimeString();
+            let color = "log-sys";
+            if (source === "Ошибка") color = "log-error";
+            if (source === "Пульт") color = "log-ctrl";
+
+            logsEl.innerHTML = `<div class="${color}">[${time}] [${source}] ${text}</div>` + logsEl.innerHTML;
+        }
+
+        function sendCommand(action) {
+            ws.send(JSON.stringify({ action: action }));
+            addLog("Пульт", `Отправлена команда: ${action}`);
+        }
+    </script>
+</body>
+</html>
