@@ -132,7 +132,7 @@
         <canvas id="telemetryChart" width="800" height="250"></canvas>
 
         <div class="controls-hint">
-            ⌨️ Управление выбранным станком: <strong>Пробел</strong> — Старт/Стоп | <strong>Стрелка Вверх</strong> — Разгон | <strong>ESC</strong> — Аварийный останов
+            ⌨️ Управление выбранным станком: <strong>Пробел</strong> — Старт/Стоп | <strong>Стрелка Вверх</strong> — Разгон | <strong>Стрелка Вниз</strong> — Замедление | <strong>ESC</strong> — Аварийный останов
         </div>
     </div>
 
@@ -148,12 +148,10 @@
     const canvas = document.getElementById('telemetryChart');
     const ctx = canvas.getContext('2d');
 
-        function connectWS() {
-        // Вот эти две строчки мы обновили (динамический хост):
+    function connectWS() {
         const host = window.location.host || 'localhost:8000';
         socket = new WebSocket(`ws://${host}/ws/operator_panel`);
 
-        // А этот код ниже остается прежним, он обрабатывает сообщения:
         socket.onmessage = function(event) {
             const rawData = event.data;
             if (!rawData.includes(':')) return;
@@ -266,18 +264,18 @@
         } else if (e.code === 'ArrowUp') {
             e.preventDefault();
             sendCommand('SPEED_UP');
-        } else if (e.code === 'ArrowDown') { // <-- ДОБАВЛЯЕМ ЭТОТ БЛОК
+        } else if (e.code === 'ArrowDown') {
             e.preventDefault();
             sendCommand('SPEED_DOWN');
         } else if (e.code === 'Escape') {
             e.preventDefault();
             sendCommand('EMERGENCY_STOP');
         }
-
     });
 
     function downloadLog() {
-        window.location.href = 'http://localhost:8000/download-log';
+        const host = window.location.host || 'localhost:8000';
+        window.location.href = `http://${host}/download-log`;
     }
 
     connectWS();

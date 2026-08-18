@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import json
+import random
 import websockets
 
 # Получаем ID станка из аргументов командной строки, либо ставим дефолт
@@ -20,12 +21,12 @@ class MachineSimulator:
         try:
             while True:
                 if self.is_running:
-                    # Если станок работает, скорость немного колеблется (реалистичность)
-                    import random
-                    drift = random.randint(-20, 20)
-                    self.speed = max(0, min(self.max_speed, self.speed + drift))
+                    # Если станок работает и скорость больше нуля, добавляем реалистичный дрифт
+                    if self.speed > 0:
+                        drift = random.randint(-15, 15)
+                        self.speed = max(0, min(self.max_speed, self.speed + drift))
                 else:
-                    # Если стоим, скорость плавно падает до нуля
+                    # Если станок выключен, скорость плавно и красиво падает до нуля
                     self.speed = max(0, self.speed - 100)
 
                 payload = {
@@ -49,10 +50,8 @@ class MachineSimulator:
 
                 # Защищенный цикл обработки команд от сервера/пульта
                 async for message in websocket:
-                    # Так как сервер вещает в формате "machine_id:json_string", проверяем префикс
                     if ":" in message:
                         prefix, content = message.split(":", 1)
-                        # Обрабатываем команду, только если она адресована НАМ или пришла с пульта напрямую
                         if prefix == self.machine_id or prefix == "operator_panel":
                             try:
                                 command = json.loads(content)
@@ -60,26 +59,40 @@ class MachineSimulator:
 
                                 if action == "TOGGLE":
                                     self.is_running = not self.is_running
-                                    print(f"[{self.machine_id}] Переключение состояния. Активен: {self.is_running}")
+                                    # ТЗ: Если станок включают, даем ему стартовые обороты (например, 500)
+                                    if self.is_running and self.speed == 0:
+                                        self.speed = 500
+                                    print(
+                                        f"[{self.machine_id}] Состояние изменено. Активен: {self.is_running} (База: {self.speed} RPM)")
 
-                                elif action == "SPEED_UP" and self.is_running:
-                                    self.speed = min(self.max_speed, self.speed + 300)
-                                    print(f"[{self.machine_id}] Разгон! Текущая базовая скорость: {self.speed}")
+                                elif action == "SPEED_UP":
+                                    # Защита: разгонять можно только запущенный станок
+                                    if self.is_running:
+                                        self.speed = min(self.max_speed, self.speed + 300)
+                                        print(f"[{self.machine_id}] Разгон! Текущая скорость: {self.speed} RPM")
 
-                                elif action == "SPEED_DOWN" and self.is_running:
-                                    self.speed = max(0, self.speed - 300)
-                                    print(f"[{self.machine_id}] Замедление. Текущая базовая скорость: {self.speed}")
+                                elif action == "SPEED_DOWN":
+                                    # Защита: сбрасывать обороты можно только у работающего станка
+                                    if self.is_running:
+                                        self.speed = max(0, self.speed - 300)
+                                        print(f"[{self.machine_id}] Замедление. Текущая скорость: {self.speed} RPM")
+
+                                        # 🎯 Фича: Если оператор затормозил станок кнопкой до 0, переводим статус в STOPPED
+                                        if self.speed == 0:
+                                            self.is_running = False
+                                            print(
+                                                f"[{self.machine_id}] Станок полностью остановлен кнопкой замедления.")
 
                                 elif action == "EMERGENCY_STOP":
                                     self.is_running = False
                                     self.speed = 0
                                     print(f"💥 [{self.machine_id}] АВАРИЙНЫЙ ОСТАНОВ!")
+
                             except json.JSONDecodeError:
                                 pass
             except websockets.ConnectionClosed:
                 print(f"[{self.machine_id}] Соединение разорвано. Переподключение...")
             finally:
-                # Безопасный сброс фоновых задач (теперь строго внутри async def)
                 if telemetry_task:
                     telemetry_task.cancel()
                     await asyncio.gather(telemetry_task, return_exceptions=True)
