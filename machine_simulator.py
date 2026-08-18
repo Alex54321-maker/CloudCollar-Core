@@ -1,72 +1,94 @@
 import asyncio
+import sys
 import json
 import websockets
 
-# Глобальные переменные состояния станка
-spindle_speed = 0
-is_motor_on = False
+# Получаем ID станка из аргументов командной строки, либо ставим дефолт
+MACHINE_ID = sys.argv[1] if len(sys.argv) > 1 else "machine_01"
+URI = f"ws://localhost:8000/ws/{MACHINE_ID}"
 
 
-async def send_telemetry(websocket):
-    """Фоновая задача: раз в секунду шлет отчет о состоянии станка"""
-    global spindle_speed, is_motor_on
-    try:
-        while True:
-            telemetry = {
-                "type": "telemetry",
-                "is_motor_on": is_motor_on,
-                "speed": spindle_speed
-            }
-            await websocket.send(json.dumps(telemetry))
-            await asyncio.sleep(1.0)  # Пауза 1 секунда
-    except asyncio.CancelledError:
-        pass
+class MachineSimulator:
+    def __init__(self, machine_id):
+        self.machine_id = machine_id
+        self.is_running = False
+        self.speed = 0
+        self.max_speed = 3000
 
-
-async def simulate_machine():
-    global spindle_speed, is_motor_on
-    uri = "ws://127.0.0.1:8000/ws/control"
-    print("[Станок] Попытка подключения к облачному серверу CloudCollar...")
-
-    try:
-        async with websockets.connect(uri) as websocket:
-            print("[Станок] Подключение установлено! Станок транслирует телеметрию.")
-
-            # Запускаем фоновую отправку телеметрии параллельно приему команд
-            telemetry_task = asyncio.create_task(send_telemetry(websocket))
-
+    async def telemetry_loop(self, websocket):
+        """Фоновая задача генерации телеметрии"""
+        try:
             while True:
-                message = await websocket.recv()
-                command = json.loads(message)
+                if self.is_running:
+                    # Если станок работает, скорость немного колеблется (реалистичность)
+                    import random
+                    drift = random.randint(-20, 20)
+                    self.speed = max(0, min(self.max_speed, self.speed + drift))
+                else:
+                    # Если стоим, скорость плавно падает до нуля
+                    self.speed = max(0, self.speed - 100)
 
-                # Пропускаем пакеты телеметрии, если сервер переслал их обратно
-                if command.get("type") == "telemetry":
-                    continue
+                payload = {
+                    "machine_id": self.machine_id,
+                    "status": "RUNNING" if self.is_running else "STOPPED",
+                    "speed": self.speed
+                }
+                await websocket.send(json.dumps(payload))
+                await asyncio.sleep(1)  # Тик раз в секунду
+        except asyncio.CancelledError:
+            pass
 
-                action = command.get("action")
+    async def start(self):
+        print(f"Запуск симулятора [{self.machine_id}]. Подключение к {URI}...")
+        async for websocket in websockets.connect(URI):
+            print(f"[{self.machine_id}] Успешно подключен к бэкенду CloudCollar.")
+            telemetry_task = None
+            try:
+                # Сразу запускаем фоновую отправку телеметрии
+                telemetry_task = asyncio.create_task(self.telemetry_loop(websocket))
 
-                if action == "start":
-                    is_motor_on = True
-                    spindle_speed = 800
-                    print(f"[⚙️ Станок] Двигатель запущен: {spindle_speed} об/мин")
+                # Защищенный цикл обработки команд от сервера/пульта
+                async for message in websocket:
+                    # Так как сервер вещает в формате "machine_id:json_string", проверяем префикс
+                    if ":" in message:
+                        prefix, content = message.split(":", 1)
+                        # Обрабатываем команду, только если она адресована НАМ или пришла с пульта напрямую
+                        if prefix == self.machine_id or prefix == "operator_panel":
+                            try:
+                                command = json.loads(content)
+                                action = command.get("action")
 
-                elif action == "speed_up":
-                    if is_motor_on:
-                        spindle_speed += 200
-                        print(f"[⚙️ Станок] Скорость увеличена до {spindle_speed} об/мин")
-                    else:
-                        print("[⚠️ Станок] Ошибка: двигатель выключен!")
+                                if action == "TOGGLE":
+                                    self.is_running = not self.is_running
+                                    print(f"[{self.machine_id}] Переключение состояния. Активен: {self.is_running}")
 
-                elif action == "stop":
-                    is_motor_on = False
-                    spindle_speed = 0
-                    print("[🛑 Станок] АВАРИЙНАЯ ОСТАНОВКА. Обороты: 0")
+                                elif action == "SPEED_UP" and self.is_running:
+                                    self.speed = min(self.max_speed, self.speed + 300)
+                                    print(f"[{self.machine_id}] Разгон! Текущая базовая скорость: {self.speed}")
 
-    except Exception as e:
-        print(f"[❌ Станок] Ошибка: {e}")
-    finally:
-        telemetry_task.cancel()
+                                elif action == "SPEED_DOWN" and self.is_running:
+                                    self.speed = max(0, self.speed - 300)
+                                    print(f"[{self.machine_id}] Замедление. Текущая базовая скорость: {self.speed}")
+
+                                elif action == "EMERGENCY_STOP":
+                                    self.is_running = False
+                                    self.speed = 0
+                                    print(f"💥 [{self.machine_id}] АВАРИЙНЫЙ ОСТАНОВ!")
+                            except json.JSONDecodeError:
+                                pass
+            except websockets.ConnectionClosed:
+                print(f"[{self.machine_id}] Соединение разорвано. Переподключение...")
+            finally:
+                # Безопасный сброс фоновых задач (теперь строго внутри async def)
+                if telemetry_task:
+                    telemetry_task.cancel()
+                    await asyncio.gather(telemetry_task, return_exceptions=True)
+                    telemetry_task = None
 
 
 if __name__ == "__main__":
-    asyncio.run(simulate_machine())
+    simulator = MachineSimulator(MACHINE_ID)
+    try:
+        asyncio.run(simulator.start())
+    except KeyboardInterrupt:
+        print(f"\nСимулятор [{MACHINE_ID}] остановлен оператором.")
