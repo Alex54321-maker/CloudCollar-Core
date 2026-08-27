@@ -51,7 +51,7 @@ def simulate_agv_picking(sku):
     }
 
     try:
-        time.sleep(2)  # Робот тратит время на поездку к стеллажу
+        time.sleep(2)  # Робот спокойно едет к стеллажу
         response = requests.post(f"{SERVER_URL}/api/action/arrow-down", json=payload)
 
         # Если товар не найден на складе
@@ -70,7 +70,7 @@ def simulate_agv_picking(sku):
 
 
 if __name__ == "__main__":
-    print("🚀 Автоматический симулятор роботов Smart Warehouse запущен!")
+    print("🚀 Автоматический симулятор роботов Smart Warehouse переведен в ШТАТНЫЙ РЕЖИМ!")
     print("Для остановки нажмите Ctrl + C в терминале\n" + "=" * 50)
 
     while True:
