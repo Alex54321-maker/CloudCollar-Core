@@ -8,6 +8,13 @@ from app.database import init_warehouse_db, get_db_connection
 from app.schemas import ActionRequest
 import logging
 import re
+from app.database import get_db_connection
+import requests
+import os
+from dotenv import load_dotenv
+
+# Загружаем скрытые переменные из файла .env
+load_dotenv()
 
 
 app = FastAPI(title="CloudCollar Smart Warehouse v2.5")
@@ -38,6 +45,21 @@ class WarehouseConnectionManager:
 
 
 manager = WarehouseConnectionManager()
+
+
+def send_telegram_alert(message: str):
+    # Безопасное чтение токенов из файла .env (в коде больше нет открытого текста!)
+    TOKEN = os.getenv("TELEGRAM_TOKEN")
+    CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+    url = f"https://telegram.org{TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        if response.status_code != 200:
+            print(f"🚨 Telegram API Fehler: {response.text}")
+    except Exception as e:
+        print(f"Fehler beim Senden an Telegram: {e}")
 
 
 # --- API ДЛЯ ПОЛУЧЕНИЯ ТЕКУЩЕГО СОСТОЯНИЯ (Для Auto-Sync) ---
@@ -86,22 +108,55 @@ async def arrow_up_unload(data: ActionRequest):
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # 1. Защита от дубликатов SKU на складе
+        # 1. Защита от дубликатов SKU на складе (ВОЗВРАЩАЕМ ПОИСК В БАЗЕ)
         cursor.execute("SELECT cell_code FROM storage_map WHERE sku = ? AND is_occupied = 1 LIMIT 1", (data.sku,))
         duplicate_sku = cursor.fetchone()
+
         if duplicate_sku:
-            # ЛОГИРОВАНИЕ ОТКАЗА (Дубликат):
+            # 1. ЗАПИСЬ В БАЗУ ДАННЫХ (Вариант Б):
+            cursor.execute("""
+                           INSERT INTO logs (level, message, cell_id)
+                           VALUES (?, ?, ?)
+                           """, (
+                               "WARNING",
+                               f"Отказ {data.device_id}: SKU {data.sku} уже существует на складе",
+                               duplicate_sku['cell_code']
+                           ))
+            conn.commit()  # Сохраняем лог в SQLite
+
+            # 2. Логирование в консоль PyCharm:
             print(
                 f"\n[⚠️ 409 CONFLICT] Отказ робота {data.device_id}: SKU {data.sku} уже есть в ячейке {duplicate_sku['cell_code']}\n")
+
+            # 3. Отправка ошибки на фронтенд:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Товар с SKU {data.sku} уже находится в ячейке {duplicate_sku['cell_code']}!"
             )
 
-        # 2. Определение идеальной целевой зоны по весу
-        if data.weight > 150.0:
-            target_zone = "A"
-            target_cells = ('A1', 'A1')
+            # 2. Определение идеаческой целевой зоны по весу
+            if data.weight > 150.0:
+                target_zone = "A"
+                target_cells = ('A1', 'A2')
+
+                # ПРОВЕРКА НА ПЕРЕГРУЗ (Критический вес):
+                if data.weight > 200.0:
+                    cursor.execute("""
+                                   INSERT INTO logs (level, message, cell_id)
+                                   VALUES (?, ?, ?)
+                                   """, (
+                                       "CRITICAL",
+                                       f"KRITISCHES GEWICHT! Drohne {data.device_id} transportiert {data.weight} kg in Zone A",
+                                       "A"
+                                   ))
+                    conn.commit()
+                    print(
+                        f"\n[🚨 CRITICAL] Warnung! Kritisches Gewicht erkannt: {data.weight} kg! Log wurde gespeichert.\n")
+
+                    # Профессиональное уведомление для немецких работодателей:
+                    send_telegram_alert(
+                        f"🚨 KRITISCHES GEWICHT! Drohne {data.device_id} hat {data.weight} kg in Zone A geliefert!")
+
         elif 100.0 <= data.weight <= 150.0:
             target_zone = "B"
             target_cells = ('B1', 'B2')
@@ -160,6 +215,7 @@ async def arrow_up_unload(data: ActionRequest):
                        VALUES (?, 'LOAD', ?, ?, ?)
                        """, (data.device_id, target_cell, data.sku, float(data.weight)))
         conn.commit()
+
 
     ui_zone_status = "QUARANTINE" if is_quarantine else target_zone
 
@@ -306,6 +362,18 @@ async def repair_cells():
         )
         conn.commit()
     return {"status": "SUCCESS", "message": "Карта склада успешно создана! Доступно 6 ячеек (A1-C2)."}
+
+
+@app.get("/api/warehouse/logs")
+def get_warehouse_logs():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Выбираем 50 самых свежих логов
+        cursor.execute("SELECT * FROM logs ORDER BY timestamp DESC LIMIT 50")
+        rows = cursor.fetchall()
+        # Превращаем sqlite3.Row в список привычных словарей через dict()
+        return [dict(row) for row in rows]
+
 
 
 
