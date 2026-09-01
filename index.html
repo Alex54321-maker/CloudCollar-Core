@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>CloudCollar Оператор-Пульт v2.0</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --panel-color: #161b22;
+            --neon-cyan: #00f0ff;
+            --neon-magenta: #ff007f;
+            --text-color: #c9d1d9;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header-panel {
+            width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .machine-selector {
+            display: flex;
+            gap: 10px;
+        }
+        .tab-btn {
+            background: transparent;
+            border: 2px solid #30363d;
+            color: var(--text-color);
+            padding: 10px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s;
+        }
+        .tab-btn.active {
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 10px var(--neon-cyan);
+        }
+        .download-btn {
+            background: transparent;
+            border: 2px solid var(--neon-magenta);
+            color: var(--neon-magenta);
+            padding: 10px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 6px;
+            box-shadow: 0 0 5px var(--neon-magenta);
+            transition: all 0.3s;
+        }
+        .download-btn:hover {
+            background: var(--neon-magenta);
+            color: white;
+            box-shadow: 0 0 15px var(--neon-magenta);
+        }
+        .dashboard {
+            background-color: var(--panel-color);
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            width: 800px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .status-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .metric-box {
+            background: #21262d;
+            padding: 15px;
+            border-radius: 8px;
+            width: 45%;
+            text-align: center;
+            border-left: 4px solid var(--neon-cyan);
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .status-running { color: #238636; }
+        .status-stopped { color: var(--neon-magenta); }
+        canvas {
+            background: #000;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            display: block;
+        }
+        .controls-hint {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: #8b949e;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-panel">
+        <div class="machine-selector">
+            <button class="tab-btn active" onclick="switchMachine('machine_01')">🤖 СТАНОК №1</button>
+            <button class="tab-btn" onclick="switchMachine('machine_02')">🤖 СТАНОК №2</button>
+        </div>
+        <button class="download-btn" onclick="downloadLog()">💾 СКАЧАТЬ ЛОГ СМЕНЫ</button>
+    </div>
+
+    <div class="dashboard">
+        <h2 style="margin-top:0; color: var(--neon-cyan);">Мониторинг: <span id="active-machine-title">machine_01</span></h2>
+
+        <div class="status-container">
+            <div class="metric-box">
+                <div>СТАТУС ЧПУ</div>
+                <div id="status-val" class="metric-value status-stopped">DISCONNECTED</div>
+            </div>
+            <div class="metric-box">
+                <div>СКОРОСТЬ ВРАЩЕНИЯ</div>
+                <div id="speed-val" class="metric-value">0 RPM</div>
+            </div>
+        </div>
+
+        <canvas id="telemetryChart" width="800" height="250"></canvas>
+
+        <div class="controls-hint">
+            ⌨️ Управление выбранным станком: <strong>Пробел</strong> — Старт/Стоп | <strong>Стрелка Вверх</strong> — Разгон | <strong>Стрелка Вниз</strong> — Замедление | <strong>ESC</strong> — Аварийный останов
+        </div>
+    </div>
+
+<script>
+    let currentMachine = 'machine_01';
+    let socket;
+
+    const telemetryHistory = {
+        'machine_01': [],
+        'machine_02': []
+    };
+
+    const canvas = document.getElementById('telemetryChart');
+    const ctx = canvas.getContext('2d');
+
+    function connectWS() {
+        const host = window.location.host || 'localhost:8000';
+        socket = new WebSocket(`ws://${host}/ws/operator_panel`);
+
+        socket.onmessage = function(event) {
+            const rawData = event.data;
+            if (!rawData.includes(':')) return;
+
+            const [machineId, jsonStr] = rawData.split(/:(.+)/);
+            if (machineId === 'operator_panel') return;
+
+            try {
+                const telemetry = JSON.parse(jsonStr);
+
+                if (telemetryHistory[machineId]) {
+                    telemetryHistory[machineId].push(telemetry.speed);
+                    if (telemetryHistory[machineId].length > 30) {
+                        telemetryHistory[machineId].shift();
+                    }
+                }
+
+                if (machineId === currentMachine) {
+                    updateUI(telemetry);
+                }
+            } catch (e) {
+                console.error("Ошибка парсинга пакета", e);
+            }
+        };
+
+        socket.onclose = function() {
+            document.getElementById('status-val').innerText = "DISCONNECTED";
+            document.getElementById('status-val').className = "metric-value status-stopped";
+            setTimeout(connectWS, 2000);
+        };
+    }
+
+    function updateUI(telemetry) {
+        const statusEl = document.getElementById('status-val');
+        statusEl.innerText = telemetry.status;
+        if (telemetry.status === 'RUNNING') {
+            statusEl.className = "metric-value status-running";
+        } else {
+            statusEl.className = "metric-value status-stopped";
+        }
+        document.getElementById('speed-val').innerText = telemetry.speed + " RPM";
+        drawChart();
+    }
+
+    function switchMachine(machineId) {
+        currentMachine = machineId;
+        document.getElementById('active-machine-title').innerText = machineId;
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            if (btn.innerText.includes(machineId === 'machine_01' ? '№1' : '№2')) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        drawChart();
+
+        const history = telemetryHistory[currentMachine];
+        if (history.length === 0) {
+            document.getElementById('status-val').innerText = "AWAITING DATA";
+            document.getElementById('status-val').className = "metric-value";
+            document.getElementById('speed-val').innerText = "0 RPM";
+        }
+    }
+
+    function drawChart() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const data = telemetryHistory[currentMachine] || [];
+
+        ctx.strokeStyle = '#1f242c';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < canvas.width; i += 40) {
+            ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+        }
+        for (let i = 0; i < canvas.height; i += 40) {
+            ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+        }
+
+        if (data.length === 0) return;
+
+        ctx.strokeStyle = '#00f0ff';
+        ctx.shadowColor = '#00f0ff';
+        ctx.shadowBlur = 10;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+
+        const step = canvas.width / 29;
+        for (let i = 0; i < data.length; i++) {
+            const x = i * step;
+            const y = canvas.height - (data[i] / 3000) * (canvas.height - 40) - 20;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    function sendCommand(action) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const cmd = { action: action };
+            socket.send(`${currentMachine}:${JSON.stringify(cmd)}`);
+        }
+    }
+
+    window.addEventListener('keydown', function (e) {
+        if (e.code === 'Space') {
+            e.preventDefault();
+            sendCommand('TOGGLE');
+        } else if (e.code === 'ArrowUp') {
+            e.preventDefault();
+            sendCommand('SPEED_UP');
+        } else if (e.code === 'ArrowDown') {
+            e.preventDefault();
+            sendCommand('SPEED_DOWN');
+        } else if (e.code === 'Escape') {
+            e.preventDefault();
+            sendCommand('EMERGENCY_STOP');
+        }
+    });
+
+    function downloadLog() {
+        const host = window.location.host || 'localhost:8000';
+        window.location.href = `http://${host}/download-log`;
+    }
+
+    connectWS();
+    drawChart();
+</script>
+</body>
+</html>
