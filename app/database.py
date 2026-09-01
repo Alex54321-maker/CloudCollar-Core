@@ -62,7 +62,7 @@ def init_warehouse_db():
                        )
                        """)
 
-        # 3. НОВАЯ ТАБЛИЦА: Системные алерты и логи (Вариант Б)
+        # 3. Таблица системных алертов и логов
         cursor.execute("""
                        CREATE TABLE IF NOT EXISTS logs
                        (
@@ -82,27 +82,50 @@ def init_warehouse_db():
                            message
                            TEXT
                            NOT
-                           NULL, -- Текст (например, "Перегруз ячейки А2")
+                           NULL, -- Текст алертов
                            cell_id
                            TEXT  -- Идентификатор ячейки
                        )
                        """)
 
-        # АВТО-ОЧИСТКА: Удаляем логи старше 50 записей, чтобы база не раздувалась
-        cursor.execute("""
-                       DELETE
-                       FROM logs
-                       WHERE id NOT IN (SELECT id
-                                        FROM logs
-                                        ORDER BY timestamp DESC LIMIT 50
-                           )
-                       """)
-
-        # Инициализация дефолтных ячеек, если таблица пустая
-        cursor.execute("DELETE FROM storage_map")  # Временно очистит ячейки при перезапуске
+        # Инициализация дефолтных ячеек (временная очистка при перезапуске для тестов)
+        cursor.execute("DELETE FROM storage_map")
 
         cursor.execute("SELECT COUNT(*) FROM storage_map")
-        if cursor.fetchone()[0] == 0:  # Исправили fetchone() == 0 на [0] для корректного счета
+        if cursor.fetchone()[0] == 0:
             default_cells = [('A1',), ('A2',), ('B1',), ('B2',), ('C1',), ('C2',)]
             cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
             conn.commit()
+
+
+def save_system_log(level: str, message: str, cell_id: str = None):
+    """
+    Безопасно записывает новый системный лог (алерт) в БД
+    и строго удерживает размер таблицы в пределах 50 последних записей.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 1. Записываем новый лог через безопасные кортежи (?, ?, ?)
+        cursor.execute(
+            """
+            INSERT INTO logs (level, message, cell_id)
+            VALUES (?, ?, ?);
+            """,
+            (level, message, cell_id)
+        )
+
+        # 2. Авто-очистка: удаляем всё, что не входит в ТОП-50 самых свежих ID
+        cursor.execute(
+            """
+            DELETE
+            FROM logs
+            WHERE id NOT IN (SELECT id
+                             FROM logs
+                             ORDER BY id DESC
+                LIMIT 50
+                );
+            """
+        )
+
+        conn.commit()

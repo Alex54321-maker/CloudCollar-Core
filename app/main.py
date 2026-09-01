@@ -2,20 +2,20 @@ import csv
 import io
 import urllib.request
 import sqlite3
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
-from fastapi.responses import StreamingResponse, HTMLResponse
-from app.database import init_warehouse_db, get_db_connection
-from app.schemas import ActionRequest
 import logging
 import re
-from app.database import get_db_connection
 import requests
 import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
+from fastapi.responses import StreamingResponse, HTMLResponse
 from dotenv import load_dotenv
+from app.database import init_warehouse_db, get_db_connection, save_system_log
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Body
+# ДОБАВЛЯЕМ ИМПОРТ СХЕМЫ ДАННЫХ:
+from app.schemas import ActionRequest
 
 # Загружаем скрытые переменные из файла .env
 load_dotenv()
-
 
 app = FastAPI(title="CloudCollar Smart Warehouse v2.5")
 
@@ -52,7 +52,7 @@ def send_telegram_alert(message: str):
     TOKEN = os.getenv("TELEGRAM_TOKEN")
     CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-    url = f"https://telegram.org{TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
         response = requests.post(url, json=payload, timeout=5)
@@ -103,17 +103,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 @app.post("/api/action/arrow-up", status_code=status.HTTP_200_OK)
-async def arrow_up_unload(data: ActionRequest):
+async def arrow_up_unload(data: ActionRequest = Body(...)):
     """Стрелка Вверх: Умная загрузка фуры роботом по ЖЕСТКИМ весовым категориям с Карантином в A2."""
+
+    # =========================================================================
+    # 1. ПРОВЕРКА НА ПЕРЕГРУЗ (ВЫНЕСЛИ НАВЕРХ — ТЕПЕРЬ СРАБОТАЕТ ВСЕГДА!)
+    # =========================================================================
+    if data.weight > 200.0:
+        # ВМЕСТО СТАРОГО SQL ВЫЗЫВАЕМ НАШУ ФУНКЦИЮ С АВТО-ОЧИСТКОЙ:
+        save_system_log(
+            level="CRITICAL",
+            message=f"KRITISCHES GEWICHT! Drohne {data.device_id} transportiert {data.weight} kg in Zone A",
+            cell_id="A"
+        )
+        print(f"\n[🚨 CRITICAL] Warnung! Kritisches Gewicht erkannt: {data.weight} kg! Log wurde gespeichert.\n")
+
+        # Профессиональное уведомление для немецких работодателей:
+        send_telegram_alert(
+            f"🚨 KRITISCHES GEWICHT! Drohne {data.device_id} hat {data.weight} kg in Zone A geliefert!"
+        )
+
+    # =========================================================================
+    # 2. ОСНОВНАЯ РАБОТА С БАЗОЙ ДАННЫХ И ЛОГИКА РАЗМЕЩЕНИЯ
+    # =========================================================================
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # 1. Защита от дубликатов SKU на складе (ВОЗВРАЩАЕМ ПОИСК В БАЗЕ)
+        # 1. Защита от дубликатов SKU на складе (В БАЗЕ)
         cursor.execute("SELECT cell_code FROM storage_map WHERE sku = ? AND is_occupied = 1 LIMIT 1", (data.sku,))
         duplicate_sku = cursor.fetchone()
 
         if duplicate_sku:
-            # 1. ЗАПИСЬ В БАЗУ ДАННЫХ (Вариант Б):
+            # ЗАПИСЬ В БАЗУ ДАННЫХ (Вариант Б):
             cursor.execute("""
                            INSERT INTO logs (level, message, cell_id)
                            VALUES (?, ?, ?)
@@ -124,40 +145,18 @@ async def arrow_up_unload(data: ActionRequest):
                            ))
             conn.commit()  # Сохраняем лог в SQLite
 
-            # 2. Логирование в консоль PyCharm:
+            # Логирование в консоль PyCharm:
             print(
                 f"\n[⚠️ 409 CONFLICT] Отказ робота {data.device_id}: SKU {data.sku} уже есть в ячейке {duplicate_sku['cell_code']}\n")
 
-            # 3. Отправка ошибки на фронтенд:
+            # Отправка ошибки на фронтенд:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Товар с SKU {data.sku} уже находится в ячейке {duplicate_sku['cell_code']}!"
             )
 
-            # 2. Определение идеаческой целевой зоны по весу
-            if data.weight > 150.0:
-                target_zone = "A"
-                target_cells = ('A1', 'A2')
-
-                # ПРОВЕРКА НА ПЕРЕГРУЗ (Критический вес):
-                if data.weight > 200.0:
-                    cursor.execute("""
-                                   INSERT INTO logs (level, message, cell_id)
-                                   VALUES (?, ?, ?)
-                                   """, (
-                                       "CRITICAL",
-                                       f"KRITISCHES GEWICHT! Drohne {data.device_id} transportiert {data.weight} kg in Zone A",
-                                       "A"
-                                   ))
-                    conn.commit()
-                    print(
-                        f"\n[🚨 CRITICAL] Warnung! Kritisches Gewicht erkannt: {data.weight} kg! Log wurde gespeichert.\n")
-
-                    # Профессиональное уведомление для немецких работодателей:
-                    send_telegram_alert(
-                        f"🚨 KRITISCHES GEWICHT! Drohne {data.device_id} hat {data.weight} kg in Zone A geliefert!")
-
-        elif 100.0 <= data.weight <= 150.0:
+        # Определение целевой зоны по весу (Проверка > 200.0 теперь ушла наверх, здесь обрабатываем остальные веса)
+        if 100.0 <= data.weight <= 150.0:
             target_zone = "B"
             target_cells = ('B1', 'B2')
         else:
@@ -209,13 +208,12 @@ async def arrow_up_unload(data: ActionRequest):
                        WHERE cell_code = ?
                        """, (data.sku, data.weight, target_cell))
 
-        # Запись в логи перемещений (Исправлено на 'LOAD', так как робот загружает склад)
+        # Запись в логи перемещений
         cursor.execute("""
                        INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
                        VALUES (?, 'LOAD', ?, ?, ?)
                        """, (data.device_id, target_cell, data.sku, float(data.weight)))
         conn.commit()
-
 
     ui_zone_status = "QUARANTINE" if is_quarantine else target_zone
 
@@ -284,7 +282,6 @@ async def arrow_down_pickup(data: ActionRequest):
 
 
 # --- ГЕНЕРАЦИЯ ЛОГИСТИЧЕСКОГО МАНИФЕСТА (CSV) ---
-
 
 
 @app.get("/download-log")
@@ -373,8 +370,6 @@ def get_warehouse_logs():
         rows = cursor.fetchall()
         # Превращаем sqlite3.Row в список привычных словарей через dict()
         return [dict(row) for row in rows]
-
-
 
 
 # --- АВТОНОМНЫЙ ЛОКАЛЬНЫЙ ИНТЕРФЕЙС ОПЕРАТОРА (ОБНОВЛЕННЫЙ) ---
@@ -521,6 +516,8 @@ async def get_warehouse_dashboard():
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
 # --- ЭНДПОИНТ ДЛЯ ПОЛНОГО АВТО-ОПРОСА РЕАКТОМ ---
 @app.get("/api/warehouse/status")
 async def get_full_warehouse_status():
@@ -581,4 +578,3 @@ async def get_full_warehouse_status():
         "logs": logs_list,
         "robots": robots_list
     }
-
