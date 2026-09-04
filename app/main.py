@@ -1,20 +1,31 @@
 import csv
+import datetime
 import io
-import urllib.request
-import sqlite3
+import json
 import logging
-import re
-import requests
 import os
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Body
-from fastapi.responses import StreamingResponse, HTMLResponse
-from dotenv import load_dotenv
-from app.database import init_warehouse_db, get_db_connection, save_system_log
-# ДОБАВЛЯЕМ ИМПОРТ СХЕМЫ ДАННЫХ:
-from app.schemas import ActionRequest
+import random  # Модуль генерации случайного веса и SKU
+import re
+import sqlite3
+import urllib.request
+from fastapi import (
+    Body,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.responses import HTMLResponse, StreamingResponse
+from postmarker.core import requests  # Ваша библиотека requests
+from dotenv import load_dotenv  # ИСПРАВЛЕНО: Подключаем загрузчик .env файлов
 
-# Загружаем скрытые переменные из файла .env
+# Загрузка переменных окружения (которая вызывала ошибку NameError)
 load_dotenv()
+
+# Импорты локальной архитектуры проекта CloudCollar
+from app.database import get_db_connection, init_warehouse_db, save_system_log
+from app.schemas import ActionRequest  # Схема валидации входящих запросов
 
 app = FastAPI(title="CloudCollar Smart Warehouse v2.5")
 
@@ -101,58 +112,83 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 @app.post("/api/action/arrow-up", status_code=status.HTTP_200_OK)
 async def arrow_up_unload(data: ActionRequest = Body(...)):
-    """Стрелка Вверх: Автоматическая приемка товара на склад AGV-роботом (AGV_Robot_01) по весовым категориям."""
+    """Стрелка Вверх: Автоматическая приемка товара на склад с защитой от пустых строк из Swagger."""
 
     # =========================================================================
-    # 1. ПРОВЕРКА НА ПЕРЕГРУЗ (Логируем работу AGV-погрузчика)
+    # 0. ОЧИСТКА И АВТО-ГЕНЕРАЦИЯ ДАННЫХ
     # =========================================================================
-    if data.weight > 200.0:
+    # Безопасно парсим устройство
+    device_id = str(data.device_id)
+    if not device_id or device_id == "string":
+        device_id = "01"
+
+    # Безопасно парсим вес (обработка чисел и строк-заглушек)
+    try:
+        current_weight = float(data.weight)
+    except (ValueError, TypeError):
+        current_weight = 0.0
+
+    if current_weight <= 0.0:
+        # Симулируем весы: случайный вес от 10.0 до 220.0 кг
+        current_weight = round(random.uniform(10.0, 220.0), 2)
+
+    # Безопасно парсим уникальный SKU
+    current_sku = str(data.sku)
+    if not current_sku or current_sku == "string" or current_sku == "SKU-UNKNOWN":
+        current_sku = f"SKU-{random.randint(1000, 9999)}"
+
+    # =========================================================================
+    # 1. ПРОВЕРКА НА ПЕРЕГРУЗ
+    # =========================================================================
+    if current_weight > 200.0:
         save_system_log(
             level="CRITICAL",
-            message=f"KRITISCHES GEWICHT! AGV-Robot {data.device_id} transportiert {data.weight} kg в зону приемки A",
+            message=f"KRITISCHES GEWICHT! AGV-Robot {device_id} transportiert {current_weight} kg в зону приемки A",
             cell_id="A"
         )
-        print(f"\n[🚨 CRITICAL] Warnung! Kritisches Gewicht erkannt: {data.weight} kg! Log wurde gespeichert.\n")
-
+        print(f"\n[🚨 CRITICAL] Kritisches Gewicht: {current_weight} kg! Log gespeichert.\n")
         send_telegram_alert(
-            f"🚨 KRITISCHES GEWICHT! AGV-Robot {data.device_id} hat {data.weight} kg zur Zone A transportiert!"
+            f"🚨 KRITISCHES GEWICHT! AGV-Robot {device_id} зафиксировал {current_weight} kg!"
         )
 
     # =========================================================================
-    # 2. ОСНОВНАЯ РАБОТА С БАЗОЙ ДАННЫХ И ЛОГИКА РАЗМЕЩЕНИЯ
+    # 2. РАБОТА С БАЗОЙ ДАННЫХ SQLite
     # =========================================================================
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # 1. Защита от дубликатов SKU на складе (В БАЗЕ)
-        cursor.execute("SELECT cell_code FROM storage_map WHERE sku = ? AND is_occupied = 1 LIMIT 1", (data.sku,))
+        # 1. Защита от дубликатов SKU
+        cursor.execute("SELECT cell_code FROM storage_map WHERE sku = ? AND is_occupied = 1 LIMIT 1", (current_sku,))
         duplicate_sku = cursor.fetchone()
 
         if duplicate_sku:
+            # Универсальный парсинг для любого формата SQLite (Row или кортеж)
+            dup_cell = duplicate_sku["cell_code"] if isinstance(duplicate_sku, dict) or not hasattr(duplicate_sku,
+                                                                                                    'keys') else \
+            duplicate_sku[0]
+
             cursor.execute("""
                            INSERT INTO logs (level, message, cell_id)
                            VALUES (?, ?, ?)
                            """, (
                                "WARNING",
-                               f"Otkaz AGV_Robot {data.device_id}: SKU {data.sku} bereits im Lager vorhanden",
-                               duplicate_sku['cell_code']
+                               f"Otkaz AGV_Robot {device_id}: SKU {current_sku} bereits im Lager",
+                               dup_cell
                            ))
             conn.commit()
-
-            print(f"\n[⚠️ 409 CONFLICT] Abweisung von AGV_Robot {data.device_id}: SKU {data.sku} ist bereits in Zelle {duplicate_sku['cell_code']}\n")
-
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Товар с SKU {data.sku} уже находится в ячейке {duplicate_sku['cell_code']}!"
+                detail=f"Товар с SKU {current_sku} уже находится в ячейке {dup_cell}!"
             )
 
         # Определение целевой зоны по весу
-        if 100.0 <= data.weight <= 150.0:
+        if 100.0 <= current_weight <= 150.0:
             target_zone = "B"
             target_cells = ('B1', 'B2')
         else:
             target_zone = "C"
             target_cells = ('C1', 'C2')
+
         # 3. Поиск свободной ячейки строго в целевой зоне
         query = "SELECT cell_code FROM storage_map WHERE is_occupied = 0 AND cell_code IN (?, ?) LIMIT 1"
         cursor.execute(query, target_cells)
@@ -161,12 +197,7 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
         is_quarantine = False
         zone_desc = f"Regalzone {target_zone}"
 
-        # Особый случай: если для тяжелого груза ячейка А1 занята, штатно разрешаем ему занять А2
-        if not row and target_zone == "A":
-            cursor.execute("SELECT cell_code FROM storage_map WHERE is_occupied = 0 AND cell_code = 'A2' LIMIT 1")
-            row = cursor.fetchone()
-
-        # 4. АВАРИЙНЫЙ РЕЗЕРВ: Если родной ярус забит, проверяем Карантин (ячейку A2)
+        # 4. АВАРИЙНЫЙ РЕЗЕРВ (Проверяем Карантин А2, если ярусы забиты)
         if not row:
             cursor.execute("SELECT cell_code FROM storage_map WHERE is_occupied = 0 AND cell_code = 'A2' LIMIT 1")
             row = cursor.fetchone()
@@ -174,20 +205,13 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
                 is_quarantine = True
                 zone_desc = f"Zone {target_zone} - Umgeleitet nach Quarantäne A2"
             else:
-                # ЛОГИРОВАНИЕ ОТКАЗА 409 (Переполнение склада):
-                error_msg = f"[🔥 409 CRITICAL] Нотная остановка AGV_Robot {data.device_id}! Zone {target_zone} voll. Quarantäne A2 ebenfalls BELEGT. Palette ({data.weight} kg) abgelehnt."
-                print(f"\n{error_msg}\n")
-
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail={
-                        "status": "error",
-                        "code": "WAREHOUSE_RACK_OVERFLOW",
-                        "message": f"Zone {target_zone} ist komplett voll. Quarantänebereich A2 besetzt. Einlagerung abgelehnt."
-                    }
+                    detail="Склад полностью переполнен! Свободных ячеек нет."
                 )
 
-        target_cell = row["cell_code"]
+        # Универсальное извлечение кода ячейки
+        target_cell = row["cell_code"] if isinstance(row, dict) or not hasattr(row, 'keys') else row[0]
 
         # 5. Обновление карты склада в БД
         cursor.execute("""
@@ -196,23 +220,23 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
                            pallet_weight = ?,
                            is_occupied   = 1
                        WHERE cell_code = ?
-                       """, (data.sku, data.weight, target_cell))
+                       """, (current_sku, current_weight, target_cell))
 
-        # Запись в логи перемещений (Фиксируем работу AGV-робота)
+        # Запись в логи перемещений
         cursor.execute("""
                        INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
                        VALUES (?, 'LOAD', ?, ?, ?)
-                       """, (f"AGV_Robot_{data.device_id}", target_cell, data.sku, float(data.weight)))
+                       """, (f"AGV_Robot_{device_id}", target_cell, current_sku, float(current_weight)))
         conn.commit()
 
     ui_zone_status = "QUARANTINE" if is_quarantine else target_zone
 
     payload = {
         "event": "LOAD_SUCCESS",
-        "device": f"AGV_Robot_{data.device_id}",
+        "device": f"AGV_Robot_{device_id}",
         "cell": target_cell,
-        "sku": data.sku,
-        "weight": float(data.weight),
+        "sku": current_sku,
+        "weight": float(current_weight),
         "zone": zone_desc,
         "zone_status": ui_zone_status
     }

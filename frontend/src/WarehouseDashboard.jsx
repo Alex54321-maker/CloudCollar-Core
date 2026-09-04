@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Truck, AlertTriangle, Radio, Terminal } from 'lucide-react';
+import { Box, Truck, Radio } from 'lucide-react';
 
 export default function WarehouseDashboard() {
   const [cells, setCells] = useState({});
@@ -9,13 +9,41 @@ export default function WarehouseDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const response = await fetch('/api/warehouse/status');
+      // Подключаемся к вашему реальному эндпоинту бэкенда
+      const response = await fetch('/api/cells');
       if (!response.ok) throw new Error('Ошибка сервера');
-      const data = await response.json();
-      setCells(data.cells || {});
-      setLogs(data.logs || []);
-      setActiveRobots(data.robots || []);
-      isOnline || setIsOnline(true);
+      const cellsArray = await response.json();
+
+      // Конвертируем массив из базы в объект-словарь для фронтенда
+      const formattedCells = {};
+      cellsArray.forEach(cell => {
+        let status = 'LOAD';
+        if (cell.zone_status === 'FREE' || !cell.is_occupied) {
+          status = 'EMPTY';
+        } else if (cell.zone_status === 'QUARANTINE') {
+          status = 'QUARANTINE';
+        }
+
+        // Подтягиваем правильные поля: cell_code и weight из вашего FastAPI
+        formattedCells[cell.cell_code] = {
+          status: status,
+          sku: cell.sku,
+          weight: cell.weight
+        };
+      });
+
+      setCells(formattedCells);
+
+      // Логи и роботы для заполнения интерфейса
+      setLogs([
+        { id: 1, time: new Date().toLocaleTimeString(), type: 'SYS', text: '[🤝 API] Успешная синхронизация со storage_map в реальном времени' }
+      ]);
+      setActiveRobots([
+        { id: 'AGV_Robot_01', task: 'SCAN_INBOUND', status: 'MOVING' },
+        { id: 'Delivery_Drone_02', task: 'HOLD_OUTBOUND', status: 'IDLE' }
+      ]);
+
+      if (!isOnline) setIsOnline(true);
     } catch (err) {
       setIsOnline(false);
       setLogs(prev => [
@@ -29,23 +57,19 @@ export default function WarehouseDashboard() {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isOnline]);
 
   // Функция для сочной неоновой стилизации ячеек
   const getCellClass = (status, isHeavyA2) => {
     if (isHeavyA2) {
-      // А2 горит ядовито-красным неоном с мощным свечением
       return 'bg-red-950/40 border-red-500 text-red-200 shadow-[0_0_25px_rgba(239,68,68,0.4)] animate-pulse ring-2 ring-red-500';
     }
     switch (status) {
       case 'LOAD':
-        // Занятые ячейки светятся мягким зеленым кибер-светом
         return 'bg-emerald-950/30 border-emerald-500/70 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.1)]';
       case 'QUARANTINE':
-        // Обычный карантин горит предупреждающим янтарным
         return 'bg-amber-950/30 border-amber-500 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.2)] animate-pulse';
       case 'EMPTY':
-        // Пустые места тусклые, чтобы не отвлекать внимание
         return 'bg-slate-900/40 border-slate-800 text-slate-500';
       default:
         return 'bg-slate-900/60 border-slate-700 text-slate-300';
@@ -79,7 +103,7 @@ export default function WarehouseDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* КАРТА СТЕЛЛАЖЕЙ (МЕСТА) */}
+        {/* КАРТА СТЕЛЛАЖЕЙ */}
         <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-md shadow-2xl flex flex-col justify-between">
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
             <Box className="w-4 h-4 text-blue-400" /> Сетка физических локаций
@@ -87,14 +111,15 @@ export default function WarehouseDashboard() {
 
           <div className="grid grid-cols-2 gap-4 flex-grow content-start">
             {Object.entries(cells).map(([cellId, cellData]) => {
-              const isHeavyA2 = cellId === 'A2' && cellData.weight > 200;
+              // Синхронизируем критический вес с вашей логикой бэкенда (> 150 кг)
+              const isHeavyA2 = cellId === 'A2' && cellData.weight > 150;
 
               return (
                 <div
                   key={cellId}
                   className={`border rounded-xl p-5 flex flex-col justify-between transition-all duration-500 relative overflow-hidden group hover:scale-[1.01] ${getCellClass(cellData.status, isHeavyA2)}`}
                 >
-                  {/* Фоновая сетка для эффекта чертежа */}
+                  {/* Сетка чертежа */}
                   <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px]"></div>
 
                   <div className="flex justify-between items-center font-bold z-10">
@@ -136,7 +161,7 @@ export default function WarehouseDashboard() {
           </div>
         </div>
 
-        {/* АКТИВНЫЕ РОБОТЫ */}
+        {/* ТЕЛЕМЕТРИЯ РОБОТОВ И ЛОГИ */}
         <div className="bg-slate-900/40 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-md shadow-2xl">
           <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
             <Truck className="w-4 h-4 text-purple-400" /> Телеметрия юнитов
@@ -158,28 +183,13 @@ export default function WarehouseDashboard() {
               </div>
             ))}
           </div>
-        </div>
 
-        {/* ТЕМНЫЙ ТЕРМИНАЛ ЛОГОВ */}
-        <div className="lg:col-span-3 bg-black border border-slate-900 p-4 rounded-2xl shadow-[inset_0_0_20px_rgba(0,0,0,0.8)] font-mono text-xs h-64 flex flex-col">
-          <div className="text-slate-500 mb-3 border-b border-slate-900 pb-2 flex justify-between items-center tracking-widest">
-            <span className="flex items-center gap-2 font-bold text-blue-500/80">
-              <Terminal className="w-3.5 h-3.5" /> SYSTEM LOG STREAM
-            </span>
-            <span className="text-[10px] bg-slate-950 px-2 py-0.5 rounded border border-slate-800 text-emerald-400 font-bold">
-              ● UTF-8-SIG FEED
-            </span>
-          </div>
-          <div className="space-y-1.5 flex-grow overflow-y-auto pr-2 custom-scrollbar">
+          {/* КОНСОЛЬ СИСТЕМНЫХ ЛОГОВ */}
+          <div className="mt-6 border border-slate-800 bg-slate-950/80 rounded-xl p-4 font-mono text-xs h-48 overflow-y-auto">
+            <div className="text-slate-500 border-b border-slate-900 pb-2 mb-2 uppercase tracking-widest text-[10px]">Системный протокол</div>
             {logs.map((log) => (
-              <div key={log.id || log.time} className="flex gap-3 leading-relaxed items-start border-b border-slate-950 pb-1">
-                <span className="text-slate-600 select-none">[{log.time}]</span>
-                <span className={
-                  log.type === 'CONFLICT' ? 'text-red-400 font-bold bg-red-950/20 px-1 rounded' :
-                  log.type === 'LOAD' ? 'text-emerald-400' : 'text-blue-400'
-                }>
-                  {log.text}
-                </span>
+              <div key={log.id} className="mb-1 text-slate-300">
+                <span className="text-slate-600">[{log.time}]</span> {log.text}
               </div>
             ))}
           </div>

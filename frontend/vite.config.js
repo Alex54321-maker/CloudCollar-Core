@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite' // Подключаем новый плагин
 
-// Настройка сборщика и сервера Vite
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    tailwindcss(), // Включаем Tailwind прямо в конвейер Vite
+  ],
   server: {
     proxy: {
-      // Перенаправляем все запросы фронтенда с /api на наш FastAPI бэкенд
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
@@ -15,3 +17,4 @@ export default defineConfig({
     }
   }
 })
+
