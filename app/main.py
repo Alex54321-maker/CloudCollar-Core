@@ -1,3 +1,5 @@
+import random
+from pydantic import BaseModel
 import csv
 import datetime
 import io
@@ -18,7 +20,9 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, StreamingResponse
 from postmarker.core import requests  # Ваша библиотека requests
-from dotenv import load_dotenv  # ИСПРАВЛЕНО: Подключаем загрузчик .env файлов
+from dotenv import load_dotenv  # ИСПРАВЛЕНО: Подключаем загрузчик .env файловimport sqlite3
+from fastapi import APIRouter, HTTPException
+
 
 # Загрузка переменных окружения (которая вызывала ошибку NameError)
 load_dotenv()
@@ -32,6 +36,69 @@ app = FastAPI(title="CloudCollar Smart Warehouse v2.5")
 # Инициализируем базу данных при старте сервера
 init_warehouse_db()
 
+
+# Создаем модель для валидации ответа
+class RobotResponse(BaseModel):
+    status: str
+    message: str
+    robot_id: str
+    payload: dict = {}
+
+
+
+
+# ... ваш существующий код, инициализация app и модель RobotResponse ...
+
+@app.post("/api/robot/agv/start", response_model=RobotResponse)
+async def start_agv():
+    """Запуск робота AGV_Robot_01: генерация груза и запись параметров в SQLite ячейки C1"""
+    simulated_weight = round(random.uniform(10.0, 50.0), 2)
+    sku_id = f"SKU-{random.randint(1000, 9999)}"
+
+    try:
+        # Подключаемся к базе данных
+        conn = sqlite3.connect("warehouse_core.db")
+        cursor = conn.cursor()
+
+        # Обновляем таблицу по вашему чертежу
+        cursor.execute("""
+                       UPDATE storage_map
+                       SET is_occupied   = 1,
+                           sku           = ?,
+                           pallet_weight = ?
+                       WHERE cell_code = 'C1'
+                       """, (sku_id, simulated_weight))
+
+        conn.commit()
+        conn.close()
+
+    except sqlite3.OperationalError as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": f"Робот AGV успешно загрузил ячейку C1 грузом {sku_id}.",
+        "robot_id": "AGV_Robot_01",
+        "payload": {
+            "sku": sku_id,
+            "weight_kg": simulated_weight,
+            "destination": "Cell_C1"
+        }
+    }
+
+
+@app.post("/api/robot/drone/call", response_model=RobotResponse)
+async def call_drone():
+    """Вызов инспекционного дрона для сканирования верхних ярусов"""
+    return {
+        "status": "success",
+        "message": "Инспекционный дрон успешно вызван на позицию.",
+        "robot_id": "Drone_Inspector_05",
+        "payload": {
+            "battery_level": f"{random.randint(70, 100)}%",
+            "task": "High_Level_Scan"
+        }
+    }
 
 # --- МЕНЕДЖЕР МУЛЬТИ-ПОДКЛЮЧЕНИЙ (WebSocket) ---
 class WarehouseConnectionManager:
