@@ -1,235 +1,162 @@
-import React, {useState, useEffect} from 'react';
-import {Box, Truck, Radio} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useInView } from 'react-intersection-observer';
 import RobotControlPanel from './RobotControlPanel';
 
-export default function WarehouseDashboard() {
+const WarehouseDashboard = () => {
+    // --- 1. ИНИЦИАЛИЗАЦИЯ ДАТЧИКА СКРОЛЛА ---
+    const { ref, inView } = useInView({ threshold: 0.1 });
+
+    // --- 2. СОСТОЯНИЯ (STATES) ИНТЕРФЕЙСА ---
     const [cells, setCells] = useState({});
-    const [logs, setLogs] = useState([]);
     const [activeRobots, setActiveRobots] = useState([]);
     const [isOnline, setIsOnline] = useState(true);
 
+    // --- 3. СОСТОЯНИЯ ДЛЯ БЕСКОНЕЧНОЙ ПРОКРУТКИ ЛОГОВ ---
+    const [realLogs, setRealLogs] = useState([]);       // Массив логов из SQLite
+    const [offset, setOffset] = useState(0);            // Смещение для пагинации
+    const [hasMore, setHasMore] = useState(true);       // Флаг: есть ли еще данные в БД
+    const [isLoadingLogs, setIsLoadingLogs] = useState(false); // Флаг процесса загрузки
+
+    // --- 4. АСИНХРОННАЯ ФУНКЦИЯ ЗАГРУЗКИ ЛОГОВ ПОРЦИЯМИ ---
+    const fetchNextLogs = async () => {
+        if (isLoadingLogs || !hasMore) return;
+        setIsLoadingLogs(true);
+        try {
+            // Запрос напрямую к запущенному FastAPI (порт 8000)
+            const response = await fetch(`http://127.0.0.1:8000/api/warehouse/logs?offset=${offset}&limit=20`);
+            if (!response.ok) throw new Error('Ошибка загрузки логов');
+            const data = await response.json();
+
+            if (data.length === 0) {
+                setHasMore(false); // Если бэкенд пустой, останавливаем запросы
+            } else {
+                setRealLogs((prev) => [...prev, ...data]); // Приклеиваем логи в конец
+                setOffset((prev) => prev + 20);           // Сдвигаем маркер на шаг вперед
+            }
+        } catch (err) {
+            console.error("Ошибка Infinite Scroll:", err);
+        } finally {
+            setIsLoadingLogs(false);
+        }
+    };
+
+    // --- 5. ФУНКЦИЯ ЗАГРУЗКИ ДАННЫХ ДАШБОРДА (КАРТА И РОБОТЫ) ---
     const fetchDashboardData = async () => {
         try {
-            // Подключаемся к вашему реальному эндпоинту бэкенда
-            const response = await fetch('/api/cells');
-            if (!response.ok) throw new Error('Ошибка сервера');
-            const cellsArray = await response.json();
-
-            // Конвертируем массив из базы в объект-словарь для фронтенда
-            const formattedCells = {};
-            cellsArray.forEach(cell => {
-                let status = 'LOAD';
-                if (cell.zone_status === 'FREE' || !cell.is_occupied) {
-                    status = 'EMPTY';
-                } else if (cell.zone_status === 'QUARANTINE') {
-                    status = 'QUARANTINE';
-                }
-
-                // Подтягиваем правильные поля: cell_code и weight из вашего FastAPI
-                formattedCells[cell.cell_code] = {
-                    status: status,
-                    sku: cell.sku,
-                    weight: cell.weight
-                };
-            });
-
-            setCells(formattedCells);
-
-            // Логи и роботы для заполнения интерфейса
-            setLogs([
-                {
-                    id: 1,
-                    time: new Date().toLocaleTimeString(),
-                    type: 'SYS',
-                    text: '[🤝 API] Успешная синхронизация со storage_map в реальном времени'
-                }
-            ]);
-            setActiveRobots([
-                {id: 'AGV_Robot_01', task: 'SCAN_INBOUND', status: 'MOVING'},
-                {id: 'Delivery_Drone_02', task: 'HOLD_OUTBOUND', status: 'IDLE'}
-            ]);
-
-            if (!isOnline) setIsOnline(true);
+            const response = await fetch('http://127.0.0.1:8000/api/cells');
+            if (response.ok) {
+                const data = await response.json();
+                setCells(data.cells || {});
+                setActiveRobots(data.robots || []);
+                setIsOnline(true);
+            }
         } catch (err) {
+            console.error("Ошибка обновления дашборда:", err);
             setIsOnline(false);
-            setLogs(prev => [
-                {
-                    id: Date.now(),
-                    time: new Date().toLocaleTimeString(),
-                    type: 'CONFLICT',
-                    text: '[⚠️ NETWORK ERROR] Потеряна связь с ядром FastAPI'
-                },
-                ...prev.slice(0, 10)
-            ]);
         }
     };
 
+    // --- 6. ЭФФЕКТЫ (EFFECTS) ---
+    // Слушатель скролла: срабатывает, когда нижний маяк виден на экране
     useEffect(() => {
-        fetchDashboardData();
-        const interval = setInterval(fetchDashboardData, 2000);
+        if (inView) {
+            fetchNextLogs();
+        }
+    }, [inView]);
+
+    // Периодическое обновление карты склада и роботов (каждые 5 секунд)
+    useEffect(() => {
+        fetchDashboardData(); // Первая загрузка при старте
+        const interval = setInterval(fetchDashboardData, 5000);
         return () => clearInterval(interval);
-    }, [isOnline]);
+    }, []);
 
-    // Функция для сочной неоновой стилизации ячеек
-    const getCellClass = (status, isHeavyA2) => {
-        if (isHeavyA2) {
-            return 'bg-red-950/40 border-red-500 text-red-200 shadow-[0_0_25px_rgba(239,68,68,0.4)] animate-pulse ring-2 ring-red-500';
-        }
-        switch (status) {
-            case 'LOAD':
-                return 'bg-emerald-950/30 border-emerald-500/70 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.1)]';
-            case 'QUARANTINE':
-                return 'bg-amber-950/30 border-amber-500 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.2)] animate-pulse';
-            case 'EMPTY':
-                return 'bg-slate-900/40 border-slate-800 text-slate-500';
-            default:
-                return 'bg-slate-900/60 border-slate-700 text-slate-300';
-        }
-    };
-
+    // --- 7. ВЁРСТКА ИНТЕРФЕЙСА (ТАЙЛВИНД СЕТКА) ---
     return (
-        <div
-            className="p-6 max-w-7xl mx-auto bg-slate-950 text-slate-100 min-h-screen font-mono selection:bg-blue-500 selection:text-white">
-
-            {/* Шапка Кибер-Терминала */}
-            <div
-                className="flex justify-between items-center mb-6 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl backdrop-blur-md shadow-2xl">
+        <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono selection:bg-emerald-500 selection:text-black">
+            {/* Хедер системы */}
+            <header className="border-b border-slate-800 pb-4 mb-6 flex justify-between items-center">
                 <div>
-                    <div className="flex items-center gap-3">
-                        <span className="w-3 h-3 rounded-full bg-blue-500 animate-ping"></span>
-                        <h1 className="text-2xl font-black tracking-wider bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
-                            CLOUDCOLLAR OPERATOR v2.5
-                        </h1>
+                    <h1 className="text-2xl font-black tracking-wider text-emerald-400">CLOUDCOLLAR // WAREHOUSE OS v2.0</h1>
+                    <p className="text-xs text-slate-500 mt-1">Автоматизированный программный комплекс управления логистическим хабом</p>
+                </div>
+                <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 border border-slate-800 rounded">
+                    <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-rose-500 shadow-[0_0_10px_#f43f5e]'}`}></span>
+                    <span className="text-xs uppercase tracking-widest">{isOnline ? 'SYSTEM ONLINE' : 'LINK DISCONNECTED'}</span>
+                </div>
+            </header>
+
+            {/* Трехколоночный кибер-интерфейс */}
+            <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                {/* КОЛОНКА 1: Управление роботами */}
+                <div className="space-y-6">
+                    <RobotControlPanel robots={activeRobots} isOnline={isOnline} />
+                </div>
+
+                {/* КОЛОНКА 2: Интерактивная карта стеллажей */}
+                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col">
+                    <div className="border-b border-slate-800 pb-2 mb-4">
+                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
                     </div>
-                    <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">Матрица распределения грузов
-                        автономного склада</p>
-                </div>
-
-                <div
-                    className={`flex items-center gap-2 border px-4 py-2 rounded-full text-xs font-bold tracking-widest transition-all ${
-                        isOnline
-                            ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
-                            : 'bg-rose-500/10 border-rose-500/50 text-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.2)]'
-                    }`}>
-                    <Radio className={`w-4 h-4 ${isOnline ? 'animate-pulse text-emerald-400' : 'text-rose-400'}`}/>
-                    {isOnline ? 'SYS_ONLINE' : 'CORE_OFFLINE'}
-                </div>
-            </div>
-
-            {/* ========================================================================= */}
-            {/* ВСТРОЕННЫЙ МОДУЛЬ УПРАВЛЕНИЯ РОБОТАМИ (Добавлен между шапкой и сеткой) */}
-            <div className="mb-6">
-                <RobotControlPanel/>
-            </div>
-            {/* ========================================================================= */}
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* КАРТА СТЕЛЛАЖЕЙ */}
-                <div
-                    className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-md shadow-2xl flex flex-col justify-between">
-                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Box className="w-4 h-4 text-blue-400"/> Сетка physical локаций
-                    </h2>
-
-                    <div className="grid grid-cols-2 gap-4 flex-grow content-start">
-                        {Object.entries(cells).map(([cellId, cellData]) => {
-                            const isHeavyA2 = cellId === 'A2' && cellData.weight > 150;
-
-                            return (
-                                <div
-                                    key={cellId}
-                                    className={`border rounded-xl p-5 flex flex-col justify-between transition-all duration-500 relative overflow-hidden group hover:scale-[1.01] ${getCellClass(cellData.status, isHeavyA2)}`}
-                                >
-                                    {/* Сетка чертежа */}
-                                    <div
-                                        className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px]"></div>
-
-                                    <div className="flex justify-between items-center font-bold z-10">
-                                        <span className="text-xl text-white tracking-wider">{cellId}</span>
-                                        <span
-                                            className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase tracking-wider ${
-                                                isHeavyA2 ? 'bg-red-500/20 border-red-400 text-red-300' :
-                                                    cellData.status === 'LOAD' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'
-                                            }`}>
-                    {isHeavyA2 ? 'CRIT_WEIGHT' : cellData.status}
-                  </span>
-                                    </div>
-
-                                    <div className="mt-4 z-10">
-                                        {cellData.sku ? (
-                                            <>
-                                                <div
-                                                    className="text-sm font-bold text-slate-200 tracking-wide font-sans truncate">{cellData.sku}</div>
-                                                <div className="text-md font-extrabold text-white mt-1">
-                                                    {cellData.weight} <span
-                                                    className="text-xs text-slate-500 font-normal">кг</span>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className="text-xs italic text-slate-600 tracking-wider">ЛОКАЦИЯ
-                                                СВОБОДНА</div>
-                                        )}
-                                    </div>
-
-                                    {isHeavyA2 && (
-                                        <div
-                                            className="absolute bottom-0 left-0 right-0 bg-gradient-to-r from-red-600 to-rose-600 text-[10px] text-center font-black text-black py-0.5 uppercase tracking-widest z-10 shadow-lg">
-                                            ⚠️ КРИТИЧЕСКИЙ ВЕС В ЗОНЕ ⚠️
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {Object.keys(cells).length === 0 && (
+                    <div className="grid grid-cols-5 gap-2 flex-1 items-center justify-center p-2">
+                        {Object.entries(cells).map(([cellId, status]) => (
                             <div
-                                className="col-span-2 text-center py-20 text-slate-600 italic tracking-widest uppercase text-xs animate-pulse">
-                                Считывание матрицы хранения...
+                                key={cellId}
+                                className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 ${
+                                    status === 'busy' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
+                                    status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
+                                    'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-800'
+                                }`}
+                            >
+                                <span className="font-bold">{cellId}</span>
+                                <span className="text-[8px] opacity-60 uppercase">{status}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* КОЛОНКА 3: Лог-поток Systemprotokoll с Infinite Scroll */}
+                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-[600px]">
+                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
+                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
+                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: ASC</span>
+                    </div>
+
+                    {/* Контейнер скролла логов */}
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
+                        {realLogs.map((log) => (
+                            <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
+                                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                                    <span>ID: {log.id} // {log.timestamp}</span>
+                                    <span className="uppercase text-slate-400 px-1 bg-slate-900 rounded">{log.level}</span>
+                                </div>
+                                <p className="text-slate-300 font-sans">{log.message}</p>
+                            </div>
+                        ))}
+
+                        {/* Индикатор загрузки в процессе получения данных */}
+                        {isLoadingLogs && (
+                            <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
+                                Загрузка следующей порции логов...
+                            </div>
+                        )}
+
+                        {/* НЕВИДИМЫЙ ДАТЧИК-МАЯК ДЛЯ REACTION-INTERSECTION-OBSERVER */}
+                        {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
+
+                        {/* Сообщение об окончании логов */}
+                        {!hasMore && (
+                            <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
+                                Конец протокола логов / Все данные загружены
                             </div>
                         )}
                     </div>
                 </div>
 
-                {/* ТЕЛЕМЕТРИЯ РОБОТОВ И ЛОГИ */}
-                <div className="bg-slate-900/40 border border-slate-800/80 p-6 rounded-2xl backdrop-blur-md shadow-2xl">
-                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Truck className="w-4 h-4 text-purple-400"/> Телеметрия юнитов
-                    </h2>
-                    <div className="space-y-3">
-                        {activeRobots.map((robot) => (
-                            <div key={robot.id}
-                                 className="p-4 bg-slate-950/60 border border-slate-800/60 rounded-xl flex justify-between items-center group hover:border-slate-700 transition-colors">
-                                <div>
-                                    <div className="font-bold text-sm text-slate-200 tracking-wide">{robot.id}</div>
-                                    <div className="text-[11px] text-slate-500 mt-0.5">TASK: {robot.task}</div>
-                                </div>
-                                <span className={`text-[10px] px-2.5 py-1 rounded-md font-bold tracking-widest border ${
-                                    robot.status === 'MOVING'
-                                        ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 animate-pulse shadow-[0_0_10px_rgba(16 Prompt_85,247,0.1)]'
-                                        : 'bg-slate-900 border-slate-800 text-slate-500'
-                                }`}>
-                {robot.status}
-              </span>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* КОНСОЛЬ СИСТЕМНЫХ ЛОГОВ */}
-                    <div
-                        className="mt-6 border border-slate-800 bg-slate-950/80 rounded-xl p-4 font-mono text-xs h-48 overflow-y-auto">
-                        <div
-                            className="text-slate-500 border-b border-slate-900 pb-2 mb-2 uppercase tracking-widest text-[10px]">Системный
-                            протокол
-                        </div>
-                        {logs.map((log) => (
-                            <div key={log.id} className="mb-1 text-slate-300">
-                                <span className="text-slate-600">[{log.time}]</span> {log.text}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-            </div>
+            </main>
         </div>
     );
-}
+};
+
+export default WarehouseDashboard;

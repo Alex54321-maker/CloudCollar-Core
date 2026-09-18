@@ -12,8 +12,9 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "lucide-react": "^1.34.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-intersection-observer": "^11.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
