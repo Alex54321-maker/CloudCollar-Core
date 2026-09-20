@@ -44,10 +44,19 @@ const WarehouseDashboard = () => {
     const fetchDashboardData = async () => {
         try {
             const response = await fetch('http://127.0.0.1:8000/api/cells');
-            if (response.ok) {
-                const data = await response.json();
-                setCells(data.cells || {});
-                setActiveRobots(data.robots || []);
+     if (response.ok) {
+                const data = await response.json(); // Тут лежит наш массив с бэкенда
+
+                // Пересобираем массив в объект { "A1": "free", "C1": "busy" } для карты
+                const formattedCells = {};
+                if (Array.isArray(data)) {
+                    data.forEach(cell => {
+                        // Если is_occupied === 1 или статус "BUSY", ставим 'busy', иначе 'free'
+                        formattedCells[cell.cell_code] = (cell.is_occupied === 1 || cell.zone_status === 'BUSY') ? 'busy' : 'free';
+                    });
+                }
+
+                setCells(formattedCells);
                 setIsOnline(true);
             }
         } catch (err) {
@@ -55,7 +64,6 @@ const WarehouseDashboard = () => {
             setIsOnline(false);
         }
     };
-
     // --- 6. ЭФФЕКТЫ (EFFECTS) ---
     // Слушатель скролла: срабатывает, когда нижний маяк виден на экране
     useEffect(() => {
