@@ -10,6 +10,9 @@ const WarehouseDashboard = () => {
     const [cells, setCells] = useState({});
     const [activeRobots, setActiveRobots] = useState([]);
     const [isOnline, setIsOnline] = useState(true);
+    
+    // ДОБАВИЛИ: Состояние выбранной ячейки для отправки роботу
+    const [selectedCell, setSelectedCell] = useState('');
 
     // --- 3. СОСТОЯНИЯ ДЛЯ БЕСКОНЕЧНОЙ ПРОКРУТКИ ЛОГОВ ---
     const [realLogs, setRealLogs] = useState([]);       // Массив логов из SQLite
@@ -22,7 +25,6 @@ const WarehouseDashboard = () => {
         if (isLoadingLogs || !hasMore) return;
         setIsLoadingLogs(true);
         try {
-            // Запрос напрямую к запущенному FastAPI (порт 8000)
             const response = await fetch(`http://127.0.0.1:8000/api/warehouse/logs?offset=${offset}&limit=20`);
             if (!response.ok) throw new Error('Ошибка загрузки логов');
             const data = await response.json();
@@ -44,19 +46,9 @@ const WarehouseDashboard = () => {
     const fetchDashboardData = async () => {
         try {
             const response = await fetch('http://127.0.0.1:8000/api/cells');
-     if (response.ok) {
-                const data = await response.json(); // Тут лежит наш массив с бэкенда
-
-                // Пересобираем массив в объект { "A1": "free", "C1": "busy" } для карты
-                const formattedCells = {};
-                if (Array.isArray(data)) {
-                    data.forEach(cell => {
-                        // Если is_occupied === 1 или статус "BUSY", ставим 'busy', иначе 'free'
-                        formattedCells[cell.cell_code] = (cell.is_occupied === 1 || cell.zone_status === 'BUSY') ? 'busy' : 'free';
-                    });
-                }
-
-                setCells(formattedCells);
+            if (response.ok) {
+                const data = await response.json();
+                setCells(data);
                 setIsOnline(true);
             }
         } catch (err) {
@@ -64,22 +56,26 @@ const WarehouseDashboard = () => {
             setIsOnline(false);
         }
     };
+
+    // Функция мгновенного очищения для триггера сброса кнопки RESET
+    const handleResetSuccess = () => {
+        fetchDashboardData(); // Сразу перечитываем актуальную БД после очистки
+        setSelectedCell('');  // Сбрасываем выбранную ячейку
+    };
+
     // --- 6. ЭФФЕКТЫ (EFFECTS) ---
-    // Слушатель скролла: срабатывает, когда нижний маяк виден на экране
     useEffect(() => {
         if (inView) {
             fetchNextLogs();
         }
     }, [inView]);
 
-    // Периодическое обновление карты склада и роботов (каждые 5 секунд)
     useEffect(() => {
-        fetchDashboardData(); // Первая загрузка при старте
+        fetchDashboardData();
         const interval = setInterval(fetchDashboardData, 5000);
         return () => clearInterval(interval);
     }, []);
 
-    // --- 7. ВЁРСТКА ИНТЕРФЕЙСА (ТАЙЛВИНД СЕТКА) ---
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono selection:bg-emerald-500 selection:text-black">
             {/* Хедер системы */}
@@ -99,7 +95,13 @@ const WarehouseDashboard = () => {
 
                 {/* КОЛОНКА 1: Управление роботами */}
                 <div className="space-y-6">
-                    <RobotControlPanel robots={activeRobots} isOnline={isOnline} />
+                    {/* ИСПРАВЛЕНИЕ: Передали selectedCell и рабочий onResetSuccess триггер */}
+                    <RobotControlPanel 
+                        robots={activeRobots} 
+                        isOnline={isOnline} 
+                        selectedCell={selectedCell}
+                        onResetSuccess={handleResetSuccess}
+                    />
                 </div>
 
                 {/* КОЛОНКА 2: Интерактивная карта стеллажей */}
@@ -107,31 +109,51 @@ const WarehouseDashboard = () => {
                     <div className="border-b border-slate-800 pb-2 mb-4">
                         <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
                     </div>
+
                     <div className="grid grid-cols-5 gap-2 flex-1 items-center justify-center p-2">
-                        {Object.entries(cells).map(([cellId, status]) => (
-                            <div
-                                key={cellId}
-                                className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 ${
-                                    status === 'busy' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
-                                    status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
-                                    'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-800'
-                                }`}
-                            >
-                                <span className="font-bold">{cellId}</span>
-                                <span className="text-[8px] opacity-60 uppercase">{status}</span>
-                            </div>
-                        ))}
+                        {Object.entries(cells).map(([cellId, cellData]) => {
+                            const status = typeof cellData === 'object' ? cellData.status : cellData;
+                            const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
+                            
+                            // Проверяем, выбрана ли данная ячейка сейчас кликом
+                            const isSelected = selectedCell === cellId;
+
+                            return (
+                                <div
+                                    key={cellId}
+                                    onClick={() => setSelectedCell(cellId)} // Реализовали клик по ячейке!
+                                    className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 cursor-pointer ${
+                                        isSelected ? 'bg-amber-500/20 border-amber-400 text-amber-300 scale-105 ring-2 ring-amber-500/50' :
+                                        status === 'busy' || status === 'occupied' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
+                                        status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
+                                        'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    {/* Идентификатор ячейки */}
+                                    <span className="font-bold">{cellId}</span>
+
+                                    {/* Текстовый статус */}
+                                    <span className="text-[8px] opacity-60 uppercase">{status}</span>
+
+                                    {/* Вес паллеты */}
+                                    {weight > 0 && (
+                                        <span className="text-[9px] text-amber-400 font-mono mt-1 px-1 bg-amber-500/10 rounded border border-amber-500/20 animate-pulse">
+                                            ⚖️ {weight} kg
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
 
-                {/* КОЛОНКА 3: Лог-поток Systemprotokoll с Infinite Scroll */}
+                {/* КОЛОНКА 3: Лог-поток Systemprotokoll */}
                 <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-[600px]">
                     <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
                         <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
                         <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: ASC</span>
                     </div>
 
-                    {/* Контейнер скролла логов */}
                     <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
                         {realLogs.map((log) => (
                             <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
@@ -143,17 +165,14 @@ const WarehouseDashboard = () => {
                             </div>
                         ))}
 
-                        {/* Индикатор загрузки в процессе получения данных */}
                         {isLoadingLogs && (
                             <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
                                 Загрузка следующей порции логов...
                             </div>
                         )}
 
-                        {/* НЕВИДИМЫЙ ДАТЧИК-МАЯК ДЛЯ REACTION-INTERSECTION-OBSERVER */}
                         {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
 
-                        {/* Сообщение об окончании логов */}
                         {!hasMore && (
                             <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
                                 Конец протокола логов / Все данные загружены

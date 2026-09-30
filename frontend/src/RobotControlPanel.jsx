@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 
-const RobotControlPanel = ({ robots, isOnline }) => {
-  const [loading, setLoading] = useState({ agv: false, drone: false });
+const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) => {
+  const [loading, setLoading] = useState({ agv: false, drone: false, reset: false });
   const [log, setLog] = useState('');
+
+  // --- СОСТОЯНИЯ ДЛЯ РУЧНОГО ВВОДА ГРУЗА ---
+  const [inputSku, setInputSku] = useState('SKU-6500');
+  const [inputWeight, setInputWeight] = useState('12.88');
 
   const handleAction = async (endpoint, robotKey) => {
     if (!isOnline) {
@@ -14,17 +18,39 @@ const RobotControlPanel = ({ robots, isOnline }) => {
     setLog(`Befehl für ${robotKey.toUpperCase()} wird gesendet...`);
 
     try {
-      // Меняем путь на прямой адрес вашего FastAPI сервера (порт 8000)
-        const response = await fetch(`http://127.0.0.1:8000/api/robot/${endpoint}`, {
+      const url = robotKey === 'reset'
+        ? `http://127.0.0.1:8000/api/warehouse/${endpoint}`
+        : `http://127.0.0.1:8000/api/robot/${endpoint}`;
+
+      // Создаём тело запроса с параметрами груза и ячейки
+      const requestBody = {
+        device_id: robotKey === 'agv' ? 'AGV_STARTEN' : robotKey === 'drone' ? 'DROHNE_RUFEN' : 'RESET_BUTTON',
+        cell_code: selectedCell || "C1",
+        sku: inputSku,
+        pallet_weight: parseFloat(inputWeight) || 0
+      };
+
+      const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
       });
       const data = await response.json();
 
       if (response.ok) {
+        // Записываем успешный ответ в лог-панель (это затрёт старую надпись Netzwerkfehler)
         setLog(`[${data.robot_id || robotKey.toUpperCase()}]: ${data.message}`);
+
+        // Вызываем триггер обновления карты для любого успешного действия роботов
+        if (typeof onResetSuccess === 'function') {
+          onResetSuccess();
+        }
       } else {
-        setLog(`Fehler: ${data.detail || 'Befehl konnte nicht ausgeführt werden'}`);
+        const errorMessage = typeof data.detail === 'object'
+          ? JSON.stringify(data.detail)
+          : data.detail;
+
+        setLog(`Fehler: ${errorMessage || 'Befehl konnte nicht ausgeführt werden'}`);
       }
     } catch (error) {
       setLog(`Netzwerkfehler: Backend (FastAPI) ist nicht erreichbar`);
@@ -39,35 +65,76 @@ const RobotControlPanel = ({ robots, isOnline }) => {
         ⚡ ROBOTER-STEUERUNG / Управление
       </h3>
 
-      <div className="flex gap-4 mb-4">
-        {/* Кнопка AGV */}
-        <button
-          onClick={() => handleAction('agv/start', 'agv')}
-          disabled={loading.agv || !isOnline}
-          className="flex-1 font-mono font-bold py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all duration-200
-                     bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-slate-950 hover:shadow-[0_0_15px_rgba(245,158,11,0.4)]
-                     disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {loading.agv ? 'Wird gestartet...' : 'AGV Starten'}
-        </button>
+      <div className="flex flex-col gap-3 mb-4">
+        {/* Отображаем, какая ячейка выбрана в данный момент */}
+        <div className="text-xs font-mono text-slate-400 mb-1">
+          Ziel-Zelle / Выбрано:{" "}
+          <span className={`${selectedCell ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
+            {selectedCell ? selectedCell : 'Ничего не выбрано (C1)'}
+          </span>
+        </div>
 
-        {/* Кнопка Дрона */}
-        <button
-          onClick={() => handleAction('drone/call', 'drone')}
-          disabled={loading.drone || !isOnline}
-          className="flex-1 font-mono font-bold py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all duration-200
-                     bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500 hover:text-slate-950 hover:shadow-[0_0_15px_rgba(6,182,212,0.4)]
-                     disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-        >
-          {loading.drone ? 'Wird gerufen...' : 'Drohne Rufen'}
-        </button>
+        {/* --- ПОЛЯ РУЧНОГО ВВОДА ПАРАМЕТРОВ ГРУЗА --- */}
+        <div className="flex flex-col gap-2 my-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
+          <label className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">Параметры груза / Frachtdaten:</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="bg-slate-900 text-white font-mono text-xs p-2 rounded-lg w-1/2 border border-slate-800 focus:border-emerald-600 outline-none"
+              placeholder="SKU-6500"
+              value={inputSku}
+              onChange={(e) => setInputSku(e.target.value)}
+            />
+            <input
+              type="number"
+              step="0.01"
+              className="bg-slate-900 text-white font-mono text-xs p-2 rounded-lg w-1/2 border border-slate-800 focus:border-emerald-600 outline-none"
+              placeholder="12.88"
+              value={inputWeight}
+              onChange={(e) => setInputWeight(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Сетка кнопок управления */}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            {/* Кнопка AGV */}
+            <button
+              disabled={loading.agv}
+              onClick={() => handleAction('agv/start', 'agv')}
+              className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-emerald-900/30 text-sm font-mono"
+            >
+              {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
+            </button>
+
+            {/* Кнопка ДРОНА */}
+            <button
+              disabled={loading.drone}
+              onClick={() => handleAction('drone/call', 'drone')}
+              className="flex-1 py-3 px-4 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-cyan-900/30 text-sm font-mono"
+            >
+              {loading.drone ? '⏱ DROHNE FLIEGT...' : '🛸 DROHNE RUFEN'}
+            </button>
+          </div>
+
+          {/* Кнопка RESET */}
+          <button
+            disabled={loading.reset}
+            onClick={() => handleAction('reset', 'reset')}
+            className="w-full py-3 px-4 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-rose-900/30 text-sm font-mono"
+          >
+            {loading.reset ? '⏱ RESETTING...' : '🚨 SYSTEM RESET'}
+          </button>
+        </div>
       </div>
 
-      {/* Консоль статуса команды */}
-      <div className="p-3 bg-black/50 border border-slate-800/80 rounded-xl font-mono text-[11px] text-slate-400 min-h-[50px] break-all flex items-start gap-1">
-        <span className="text-emerald-500 animate-pulse">&gt;</span>
-        <span>{log || 'Warte auf Bedienerbefehle / Ожидание команд...'}</span>
-      </div>
+      {/* Лог выполнения команд */}
+      {log && (
+        <div className="mt-3 p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
+          {log}
+        </div>
+      )}
     </div>
   );
 };

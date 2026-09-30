@@ -93,7 +93,7 @@ def init_warehouse_db():
 
         cursor.execute("SELECT COUNT(*) FROM storage_map")
         if cursor.fetchone()[0] == 0:
-            default_cells = [('A1',), ('A2',), ('B1',), ('B2',), ('C1',), ('C2',)]
+            default_cells = [('A1',), ('A2',), ('B1',), ('B2',), ('C1',), ('C2',), ('D1',)]
             cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
             conn.commit()
 
@@ -128,4 +128,14 @@ def save_system_log(level: str, message: str, cell_id: str = None):
             """
         )
 
+        conn.commit()
+
+def add_new_warehouse_cell(cell_code: str):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # INSERT OR IGNORE спасет от ошибок, если ячейка с таким кодом уже есть
+        cursor.execute(
+            "INSERT OR IGNORE INTO storage_map (cell_code, is_occupied) VALUES (?, 0)",
+            (cell_code,)
+        )
         conn.commit()
