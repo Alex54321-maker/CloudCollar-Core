@@ -10,7 +10,7 @@ const WarehouseDashboard = () => {
     const [cells, setCells] = useState({});
     const [activeRobots, setActiveRobots] = useState([]);
     const [isOnline, setIsOnline] = useState(true);
-    
+
     // ДОБАВИЛИ: Состояние выбранной ячейки для отправки роботу
     const [selectedCell, setSelectedCell] = useState('');
 
@@ -20,12 +20,17 @@ const WarehouseDashboard = () => {
     const [hasMore, setHasMore] = useState(true);       // Флаг: есть ли еще данные в БД
     const [isLoadingLogs, setIsLoadingLogs] = useState(false); // Флаг процесса загрузки
 
+    // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: Erkennt automatisch ob localhost oder die Netzwerk-IP (192.168.0.112) aktiv ist
+    const backendIp = window.location.hostname;
+    const backendBaseUrl = `http://${backendIp}:8000`;
+
     // --- 4. АСИНХРОННАЯ ФУНКЦИЯ ЗАГРУЗКИ ЛОГОВ ПОРЦИЯМИ ---
     const fetchNextLogs = async () => {
         if (isLoadingLogs || !hasMore) return;
         setIsLoadingLogs(true);
         try {
-            const response = await fetch(`http://127.0.0.1:8000/api/warehouse/logs?offset=${offset}&limit=20`);
+            // Nutzt jetzt die dynamische URL statt der festen 127.0.0.1
+            const response = await fetch(`${backendBaseUrl}/api/warehouse/logs?offset=${offset}&limit=20`);
             if (!response.ok) throw new Error('Ошибка загрузки логов');
             const data = await response.json();
 
@@ -45,7 +50,8 @@ const WarehouseDashboard = () => {
     // --- 5. ФУНКЦИЯ ЗАГРУЗКИ ДАННЫХ ДАШБОРДА (КАРТА И РОБОТЫ) ---
     const fetchDashboardData = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/cells');
+            // Nutzt jetzt die dynamische URL für die Zellen-Datenmatrix
+            const response = await fetch(`${backendBaseUrl}/api/cells`);
             if (response.ok) {
                 const data = await response.json();
                 setCells(data);
@@ -95,10 +101,9 @@ const WarehouseDashboard = () => {
 
                 {/* КОЛОНКА 1: Управление роботами */}
                 <div className="space-y-6">
-                    {/* ИСПРАВЛЕНИЕ: Передали selectedCell и рабочий onResetSuccess триггер */}
-                    <RobotControlPanel 
-                        robots={activeRobots} 
-                        isOnline={isOnline} 
+                    <RobotControlPanel
+                        robots={activeRobots}
+                        isOnline={isOnline}
                         selectedCell={selectedCell}
                         onResetSuccess={handleResetSuccess}
                     />
@@ -114,7 +119,7 @@ const WarehouseDashboard = () => {
                         {Object.entries(cells).map(([cellId, cellData]) => {
                             const status = typeof cellData === 'object' ? cellData.status : cellData;
                             const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
-                            
+
                             // Проверяем, выбрана ли данная ячейка сейчас кликом
                             const isSelected = selectedCell === cellId;
 
@@ -185,5 +190,5 @@ const WarehouseDashboard = () => {
         </div>
     );
 };
-
+// Добавьте эту строку в самый конец файла:
 export default WarehouseDashboard;

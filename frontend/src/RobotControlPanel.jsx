@@ -8,6 +8,10 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
   const [inputSku, setInputSku] = useState('SKU-6500');
   const [inputWeight, setInputWeight] = useState('12.88');
 
+  // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: берет IP-адрес текущего хоста (ПК или 192.168.0.112) и подставляет порт 8000
+  const backendIp = window.location.hostname;
+  const backendBaseUrl = `http://${backendIp}:8000`;
+
   const handleAction = async (endpoint, robotKey) => {
     if (!isOnline) {
       setLog(`Fehler: Keine Verbindung zum Hauptsystem!`);
@@ -18,9 +22,10 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
     setLog(`Befehl für ${robotKey.toUpperCase()} wird gesendet...`);
 
     try {
+      // Используем динамический базовый URL
       const url = robotKey === 'reset'
-        ? `http://127.0.0.1:8000/api/warehouse/${endpoint}`
-        : `http://127.0.0.1:8000/api/robot/${endpoint}`;
+        ? `${backendBaseUrl}/api/warehouse/${endpoint}`
+        : `${backendBaseUrl}/api/robot/${endpoint}`;
 
       // Создаём тело запроса с параметрами груза и ячейки
       const requestBody = {
@@ -38,10 +43,8 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
       const data = await response.json();
 
       if (response.ok) {
-        // Записываем успешный ответ в лог-панель (это затрёт старую надпись Netzwerkfehler)
         setLog(`[${data.robot_id || robotKey.toUpperCase()}]: ${data.message}`);
 
-        // Вызываем триггер обновления карты для любого успешного действия роботов
         if (typeof onResetSuccess === 'function') {
           onResetSuccess();
         }
@@ -66,7 +69,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
       </h3>
 
       <div className="flex flex-col gap-3 mb-4">
-        {/* Отображаем, какая ячейка выбрана в данный момент */}
         <div className="text-xs font-mono text-slate-400 mb-1">
           Ziel-Zelle / Выбрано:{" "}
           <span className={`${selectedCell ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
@@ -74,7 +76,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
           </span>
         </div>
 
-        {/* --- ПОЛЯ РУЧНОГО ВВОДА ПАРАМЕТРОВ ГРУЗА --- */}
         <div className="flex flex-col gap-2 my-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
           <label className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">Параметры груза / Frachtdaten:</label>
           <div className="flex gap-2">
@@ -96,10 +97,8 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
           </div>
         </div>
 
-        {/* Сетка кнопок управления */}
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
-            {/* Кнопка AGV */}
             <button
               disabled={loading.agv}
               onClick={() => handleAction('agv/start', 'agv')}
@@ -108,7 +107,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
               {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
             </button>
 
-            {/* Кнопка ДРОНА */}
             <button
               disabled={loading.drone}
               onClick={() => handleAction('drone/call', 'drone')}
@@ -118,7 +116,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
             </button>
           </div>
 
-          {/* Кнопка RESET */}
           <button
             disabled={loading.reset}
             onClick={() => handleAction('reset', 'reset')}
@@ -129,7 +126,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
         </div>
       </div>
 
-      {/* Лог выполнения команд */}
       {log && (
         <div className="mt-3 p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
           {log}

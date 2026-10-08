@@ -312,6 +312,10 @@ def get_warehouse_logs(offset: int = 0, limit: int = 20):
 
 @app.websocket("/ws/warehouse")
 async def websocket_endpoint(websocket: WebSocket):
+    # Добавь эту строчку ПЕРВЫМ делом внутрь функции:
+    # Она принудительно одобряет входящий звонок с телефона
+    await websocket.accept()
+
     await manager.class_connect(websocket)
     try:
         while True:
