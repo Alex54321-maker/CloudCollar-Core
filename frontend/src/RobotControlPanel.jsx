@@ -10,7 +10,7 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
 
   // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: берет IP-адрес текущего хоста (ПК или 192.168.0.112) и подставляет порт 8000
   const backendIp = window.location.hostname;
-  const backendBaseUrl = `http://${backendIp}:8000`;
+  const backendBaseUrl = 'https://cloudcollar-backend.onrender.com';
 
   const handleAction = async (endpoint, robotKey) => {
     if (!isOnline) {

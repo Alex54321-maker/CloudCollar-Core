@@ -22,7 +22,8 @@ const WarehouseDashboard = () => {
 
     // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: Erkennt automatisch ob localhost oder die Netzwerk-IP (192.168.0.112) aktiv ist
     const backendIp = window.location.hostname;
-    const backendBaseUrl = `http://${backendIp}:8000`;
+    const backendBaseUrl = 'https://cloudcollar-backend.onrender.com';
+
 
     // --- 4. АСИНХРОННАЯ ФУНКЦИЯ ЗАГРУЗКИ ЛОГОВ ПОРЦИЯМИ ---
     const fetchNextLogs = async () => {
