@@ -131,18 +131,128 @@ async def reset_warehouse():
 
 
 # =========================================================================
-# 🛸 УМНЫЙ ВЫЗОВ ДРОНА ИЗ REACT ИНТЕРФЕЙСА (ЕДИНСТВЕННЫЙ)
+# =========================================================================
+# 🛸 УМНЫЙ ВЫЗОВ ДРОНА ИЗ REACT ИНТЕРФЕЙСА (СВЯЗАННЫЙ С ЛОГИСТИКОЙ СКЛАДА)
 # =========================================================================
 @app.post("/api/robot/drone/call", response_model=RobotResponse)
-async def call_drone():
-    """Обрабатывает нажатие возвращенной кнопки 'DROHNE RUFEN'"""
-    simulated_battery = f"{random.randint(70, 100)}%"
+async def call_drone(request: dict = Body(...)):
+    """Принимает ячейку забора и отправляет дрон с грузом в Цех 1 (Werk 1), освобождая ячейку"""
+
+    # Проверяем все возможные ключи, которые может прислать фронтенд
+    pickup_cell = request.get("cell_code") or request.get("cell")
+
+    # Если фронтенд вообще ничего не прислал (None или пустая строка) — только тогда берем C1
+    if not pickup_cell or pickup_cell == "string":
+        pickup_cell = "C1"
+
+    destination = request.get("destination", "Werk 1")
+    sku_id = request.get("sku", "SKU-6500")
+
+    weight_input = request.get("pallet_weight", 0.0)
+
+    try:
+        conn = sqlite3.connect("warehouse_core.db")
+        cursor = conn.cursor()
+
+        # 2. Дрон забирает груз -> освобождаем ячейку склада в БД
+        cursor.execute("""
+                       UPDATE storage_map
+                       SET is_occupied   = 0,
+                           sku           = NULL,
+                           pallet_weight = 0.0
+                       WHERE cell_code = ?
+                       """, (pickup_cell,))
+
+        # 3. Записываем отчет в transfer_logs об успешной отгрузке дроном (UNLOAD)
+        cursor.execute("""
+                       INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                       VALUES (?, 'UNLOAD', ?, ?, ?)
+                       """, ("Delivery_Drone_02", pickup_cell, sku_id, weight_input))
+
+        conn.commit()
+        conn.close()
+
+    except sqlite3.OperationalError as e:
+        raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
+
+    # Симулируем параметры дрона для красивого ответа в интерфейс
+    simulated_battery = f"{random.randint(75, 99)}%"
+
     return {
         "status": "success",
-        "message": "Inspektionsdrohne wurde erfolgreich gerufen und befindet sich im Anflug.",
-        "robot_id": "Drone_Inspector_05",
-        "payload": {"battery_level": simulated_battery, "task": "High_Level_Scan"}
+        "message": f"Drohne hat Fracht {sku_id} aus Zelle {pickup_cell} abgeholt und fliegt zu {destination}.",
+        "robot_id": "Delivery_Drone_02",
+        "payload": {
+            "battery_level": simulated_battery,
+            "departure_cell": pickup_cell,
+            "destination": destination
+        }
     }
+
+
+# =========================================================================
+# 🛸 АВТОМАТИЧЕСКИЙ ДРОН: ИЗ ЛАГЕРА В ПРОДУКЦИОННУЮ ЗОНУ (С ОСВОБОЖДЕНИЕМ ЯЧЕЙКИ)
+# =========================================================================
+@app.post("/api/robot/drone/production", response_model=RobotResponse)
+async def start_drone_to_production(request: dict = Body(...)):
+    """Дрон забирает груз из выбранной ячейки склада и переносит в изолированную зону цеха"""
+
+    # Получаем ячейку забора груза, которую кликнул пользователь на экране
+    pickup_cell = request.get("cell_code") or request.get("cell")
+    if not pickup_cell or pickup_cell == "string":
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie сначала Zelle auf der Karte!")
+
+    try:
+        conn = sqlite3.connect("warehouse_core.db")
+        conn.row_factory = sqlite3.Row  # Чтобы читать данные по именам колонок
+        cursor = conn.cursor()
+
+        # 1. Проверяем, есть ли груз в этой ячейке
+        cursor.execute("SELECT sku, pallet_weight, is_occupied FROM storage_map WHERE cell_code = ?", (pickup_cell,))
+        row = cursor.fetchone()
+
+        if not row or row["is_occupied"] == 0:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Zelle {pickup_cell} ist leer! Es gibt ничего для дрона.")
+
+        sku_id = row["sku"]
+        weight_input = row["pallet_weight"]
+
+        # 2. ДРОН ЗАБИРАЕТ ГРУЗ -> Освобождаем ячейку склада (FREE)
+        cursor.execute("""
+                       UPDATE storage_map
+                       SET is_occupied   = 0,
+                           sku           = NULL,
+                           pallet_weight = 0.0
+                       WHERE cell_code = ?
+                       """, (pickup_cell,))
+
+        # 3. Записываем отчет в transfer_logs для Infinite Scroll и фронтенда
+        cursor.execute("""
+                       INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                       VALUES (?, 'PRODUCTION_DELIVERY', 'PROD_ZONE', ?, ?)
+                       """, (f"Drone_To_Production", sku_id, weight_input))
+
+        conn.commit()
+        conn.close()
+
+    except sqlite3.OperationalError as e:
+        raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": f"Drohne_01 hat Fracht {sku_id} ({weight_input} kg) aus Zelle {pickup_cell} erfolgreich в Produktionsbereich доставлен.",
+        "robot_id": "Drohne_01",
+        "payload": {
+            "sku": sku_id,
+            "weight_kg": weight_input,
+            "origin": pickup_cell,
+            "destination": "Produktionsbereich"
+        }
+    }
+
+
+
 # --- МЕНЕДЖЕР МУЛЬТИ-ПОДКЛЮЧЕНИЙ (WebSocket) ---
 class WarehouseConnectionManager:
     def __init__(self):

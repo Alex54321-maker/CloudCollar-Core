@@ -10,36 +10,36 @@ const WarehouseDashboard = () => {
     const [cells, setCells] = useState({});
     const [activeRobots, setActiveRobots] = useState([]);
     const [isOnline, setIsOnline] = useState(true);
-
-    // ДОБАВИЛИ: Состояние выбранной ячейки для отправки роботу
+    const [productionItems, setProductionItems] = useState([]);
     const [selectedCell, setSelectedCell] = useState('');
 
     // --- 3. СОСТОЯНИЯ ДЛЯ БЕСКОНЕЧНОЙ ПРОКРУТКИ ЛОГОВ ---
-    const [realLogs, setRealLogs] = useState([]);       // Массив логов из SQLite
-    const [offset, setOffset] = useState(0);            // Смещение для пагинации
-    const [hasMore, setHasMore] = useState(true);       // Флаг: есть ли еще данные в БД
-    const [isLoadingLogs, setIsLoadingLogs] = useState(false); // Флаг процесса загрузки
+    const [realLogs, setRealLogs] = useState([]);
+    const [offset, setOffset] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
-    // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: Erkennt automatisch ob localhost oder die Netzwerk-IP (192.168.0.112) aktiv ist
-    const backendIp = window.location.hostname;
-    const backendBaseUrl = 'https://cloudcollar-backend.onrender.com';
+    // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА
 
+// Автоматически переключает адрес бэкенда в зависимости от того, где открыт сайт
+    const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'https://cloudcollar-backend.onrender.com';
 
     // --- 4. АСИНХРОННАЯ ФУНКЦИЯ ЗАГРУЗКИ ЛОГОВ ПОРЦИЯМИ ---
     const fetchNextLogs = async () => {
         if (isLoadingLogs || !hasMore) return;
         setIsLoadingLogs(true);
         try {
-            // Nutzt jetzt die dynamische URL statt der festen 127.0.0.1
             const response = await fetch(`${backendBaseUrl}/api/warehouse/logs?offset=${offset}&limit=20`);
             if (!response.ok) throw new Error('Ошибка загрузки логов');
             const data = await response.json();
 
             if (data.length === 0) {
-                setHasMore(false); // Если бэкенд пустой, останавливаем запросы
+                setHasMore(false);
             } else {
-                setRealLogs((prev) => [...prev, ...data]); // Приклеиваем логи в конец
-                setOffset((prev) => prev + 20);           // Сдвигаем маркер на шаг вперед
+                setRealLogs((prev) => [...prev, ...data]);
+                setOffset((prev) => prev + 20);
             }
         } catch (err) {
             console.error("Ошибка Infinite Scroll:", err);
@@ -51,7 +51,6 @@ const WarehouseDashboard = () => {
     // --- 5. ФУНКЦИЯ ЗАГРУЗКИ ДАННЫХ ДАШБОРДА (КАРТА И РОБОТЫ) ---
     const fetchDashboardData = async () => {
         try {
-            // Nutzt jetzt die dynamische URL für die Zellen-Datenmatrix
             const response = await fetch(`${backendBaseUrl}/api/cells`);
             if (response.ok) {
                 const data = await response.json();
@@ -66,8 +65,9 @@ const WarehouseDashboard = () => {
 
     // Функция мгновенного очищения для триггера сброса кнопки RESET
     const handleResetSuccess = () => {
-        fetchDashboardData(); // Сразу перечитываем актуальную БД после очистки
-        setSelectedCell('');  // Сбрасываем выбранную ячейку
+        fetchDashboardData();
+        setSelectedCell('');
+        setProductionItems([]);
     };
 
     // --- 6. ЭФФЕКТЫ (EFFECTS) ---
@@ -82,13 +82,12 @@ const WarehouseDashboard = () => {
         const interval = setInterval(fetchDashboardData, 5000);
         return () => clearInterval(interval);
     }, []);
-
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono selection:bg-emerald-500 selection:text-black">
             {/* Хедер системы */}
             <header className="border-b border-slate-800 pb-4 mb-6 flex justify-between items-center">
                 <div>
-                    <h1 className="text-2xl font-black tracking-wider text-emerald-400">CLOUDCOLLAR // WAREHOUSE OS v2.0</h1>
+                    <h1 className="text-2xl font-black tracking-wider text-emerald-400">CLOUDCOLLAR // WAREHOUSE OS v2.5</h1>
                     <p className="text-xs text-slate-500 mt-1">Автоматизированный программный комплекс управления логистическим хабом</p>
                 </div>
                 <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 border border-slate-800 rounded">
@@ -107,49 +106,78 @@ const WarehouseDashboard = () => {
                         isOnline={isOnline}
                         selectedCell={selectedCell}
                         onResetSuccess={handleResetSuccess}
+                        onDroneDeliverySuccess={(payload) => {
+                            setProductionItems(prev => [...prev, {
+                                sku: payload.sku,
+                                weight: payload.weight_kg,
+                                timestamp: new Date().toLocaleTimeString()
+                            }]);
+                        }}
                     />
                 </div>
 
                 {/* КОЛОНКА 2: Интерактивная карта стеллажей */}
-                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col">
-                    <div className="border-b border-slate-800 pb-2 mb-4">
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
+                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col justify-between">
+                    <div>
+                        <div className="border-b border-slate-800 pb-2 mb-4">
+                            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
+                        </div>
+
+                        <div className="grid grid-cols-5 gap-2 p-2">
+                            {Object.entries(cells).map(([cellId, cellData]) => {
+                                const status = typeof cellData === 'object' ? cellData.status : cellData;
+                                const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
+                                const isSelected = selectedCell === cellId;
+
+                                return (
+                                    <div
+                                        key={cellId}
+                                        onClick={() => setSelectedCell(cellId)}
+                                        className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 cursor-pointer ${
+                                            isSelected ? 'bg-amber-500/20 border-amber-400 text-amber-300 scale-105 ring-2 ring-amber-500/50' :
+                                            status === 'busy' || status === 'occupied' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
+                                            status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
+                                            'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500 hover:text-slate-300'
+                                        }`}
+                                    >
+                                        <span className="font-bold">{cellId}</span>
+                                        <span className="text-[8px] opacity-60 uppercase">{status}</span>
+                                        {weight > 0 && (
+                                            <span className="text-[9px] text-amber-400 font-mono mt-1 px-1 bg-amber-500/10 rounded border border-amber-500/20 animate-pulse">
+                                                ⚖️ {weight} kg
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-2 flex-1 items-center justify-center p-2">
-                        {Object.entries(cells).map(([cellId, cellData]) => {
-                            const status = typeof cellData === 'object' ? cellData.status : cellData;
-                            const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
-
-                            // Проверяем, выбрана ли данная ячейка сейчас кликом
-                            const isSelected = selectedCell === cellId;
-
-                            return (
-                                <div
-                                    key={cellId}
-                                    onClick={() => setSelectedCell(cellId)} // Реализовали клик по ячейке!
-                                    className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 cursor-pointer ${
-                                        isSelected ? 'bg-amber-500/20 border-amber-400 text-amber-300 scale-105 ring-2 ring-amber-500/50' :
-                                        status === 'busy' || status === 'occupied' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
-                                        status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
-                                        'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500 hover:text-slate-300'
-                                    }`}
-                                >
-                                    {/* Идентификатор ячейки */}
-                                    <span className="font-bold">{cellId}</span>
-
-                                    {/* Текстовый статус */}
-                                    <span className="text-[8px] opacity-60 uppercase">{status}</span>
-
-                                    {/* Вес паллеты */}
-                                    {weight > 0 && (
-                                        <span className="text-[9px] text-amber-400 font-mono mt-1 px-1 bg-amber-500/10 rounded border border-amber-500/20 animate-pulse">
-                                            ⚖️ {weight} kg
-                                        </span>
-                                    )}
+                    {/* ИЗОЛИРОВАННАЯ ЗОНА ПРОИЗВОДСТВА */}
+                    <div className="mt-6 p-4 bg-sky-950/20 border border-sky-500/30 rounded-xl backdrop-blur-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
+                                🏭 Produktionsbereich / Цех выгрузки
+                            </h3>
+                            <span className="text-[9px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-mono">
+                                Складской списан
+                            </span>
+                        </div>
+                        <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+                            {productionItems.length === 0 ? (
+                                <div className="text-center py-3 text-[10px] text-slate-600 uppercase tracking-widest border border-dashed border-slate-800 rounded-lg">
+                                    Зона пуста. Ждем дрона...
                                 </div>
-                            );
-                        })}
+                            ) : (
+                                productionItems.map((item, idx) => (
+                                    <div key={idx} className="text-[10px] flex justify-between items-center bg-slate-950/80 p-2 border border-slate-800 rounded-lg">
+                                        <span className="text-emerald-400 font-bold font-mono">🛸 {item.sku}</span>
+                                        <span className="text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{item.weight} kg</span>
+                                        <span className="text-slate-500 font-mono text-[9px]">{item.timestamp}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -191,5 +219,5 @@ const WarehouseDashboard = () => {
         </div>
     );
 };
-// Добавьте эту строку в самый конец файла:
+
 export default WarehouseDashboard;

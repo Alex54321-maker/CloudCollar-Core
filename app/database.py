@@ -89,7 +89,7 @@ def init_warehouse_db():
                        """)
 
         # Инициализация дефолтных ячеек (временная очистка при перезапуске для тестов)
-        cursor.execute("DELETE FROM storage_map")
+        # cursor.execute("DELETE FROM storage_map")
 
         cursor.execute("SELECT COUNT(*) FROM storage_map")
         if cursor.fetchone()[0] == 0:

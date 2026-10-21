@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
-const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) => {
-  const [loading, setLoading] = useState({ agv: false, drone: false, reset: false });
+const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onDroneDeliverySuccess }) => {
+  const [loading, setLoading] = useState({ agv: false, drone: false, droneProduction: false, reset: false });
   const [log, setLog] = useState('');
 
   // --- СОСТОЯНИЯ ДЛЯ РУЧНОГО ВВОДА ГРУЗА ---
   const [inputSku, setInputSku] = useState('SKU-6500');
   const [inputWeight, setInputWeight] = useState('12.88');
 
-  // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: берет IP-адрес текущего хоста (ПК или 192.168.0.112) и подставляет порт 8000
-  const backendIp = window.location.hostname;
-  const backendBaseUrl = 'https://cloudcollar-backend.onrender.com';
-
+  // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: теперь шлем запросы на локальный компьютер
+  const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'https://cloudcollar-backend.onrender.com';
   const handleAction = async (endpoint, robotKey) => {
     if (!isOnline) {
       setLog(`Fehler: Keine Verbindung zum Hauptsystem!`);
@@ -19,20 +19,19 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
     }
 
     setLoading(prev => ({ ...prev, [robotKey]: true }));
-    setLog(`Befehl für ${robotKey.toUpperCase()} wird gesendet...`);
+    setLog(`Befehl для ${robotKey.toUpperCase()} wird gesendet...`);
 
     try {
-      // Используем динамический базовый URL
       const url = robotKey === 'reset'
         ? `${backendBaseUrl}/api/warehouse/${endpoint}`
-        : `${backendBaseUrl}/api/robot/${endpoint}`;
+        : `${backendBaseUrl}/api/${endpoint}`;
 
-      // Создаём тело запроса с параметрами груза и ячейки
       const requestBody = {
-        device_id: robotKey === 'agv' ? 'AGV_STARTEN' : robotKey === 'drone' ? 'DROHNE_RUFEN' : 'RESET_BUTTON',
+        device_id: robotKey === 'agv' ? 'AGV_STARTEN' : robotKey === 'droneProduction' ? 'DROHNE_PRODUCTION' : 'RESET_BUTTON',
         cell_code: selectedCell || "C1",
+        destination: robotKey === 'droneProduction' ? 'Produktionshalle' : 'Logistikhub',
         sku: inputSku,
-        pallet_weight: parseFloat(inputWeight) || 0
+        pallet_weight: parseFloat(String(inputWeight).replace(',', '.')) || 0
       };
 
       const response = await fetch(url, {
@@ -45,15 +44,22 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
       if (response.ok) {
         setLog(`[${data.robot_id || robotKey.toUpperCase()}]: ${data.message}`);
 
-        if (typeof onResetSuccess === 'function') {
-          onResetSuccess();
+
+        // Подменяем или берем реальные параметры из инпутов, если бэкенд прислал пустоту
+        if (robotKey === 'droneProduction' && typeof onDroneDeliverySuccess === 'function') {
+          const fakePayload = {
+            sku: inputSku,
+            weight_kg: parseFloat(String(inputWeight).replace(',', '.')) || 0
+          };
+          onDroneDeliverySuccess(fakePayload);
         }
+
       } else {
         const errorMessage = typeof data.detail === 'object'
           ? JSON.stringify(data.detail)
           : data.detail;
 
-        setLog(`Fehler: ${errorMessage || 'Befehl konnte nicht ausgeführt werden'}`);
+        setLog(`Fehler: ${errorMessage || 'Befehl konnte не выполнен'}`);
       }
     } catch (error) {
       setLog(`Netzwerkfehler: Backend (FastAPI) ist nicht erreichbar`);
@@ -69,11 +75,16 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
       </h3>
 
       <div className="flex flex-col gap-3 mb-4">
-        <div className="text-xs font-mono text-slate-400 mb-1">
-          Ziel-Zelle / Выбрано:{" "}
-          <span className={`${selectedCell ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
-            {selectedCell ? selectedCell : 'Ничего не выбрано (C1)'}
-          </span>
+        <div className="text-xs font-mono text-slate-400 flex flex-col gap-1 mb-1">
+          <div>
+            Abhol-Zelle (AGV) / Откуда:{" "}
+            <span className={`${selectedCell ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
+              {selectedCell ? selectedCell : 'C1 (По умолчанию)'}
+            </span>
+          </div>
+          <div>
+            Zielort / Куда: <span className="text-cyan-400 font-bold">Werk 1 (Цех 1)</span>
+          </div>
         </div>
 
         <div className="flex flex-col gap-2 my-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
@@ -97,25 +108,27 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell }) =
           </div>
         </div>
 
+        {/* БЛОК КНОПОК УПРАВЛЕНИЯ */}
         <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
-            <button
-              disabled={loading.agv}
-              onClick={() => handleAction('agv/start', 'agv')}
-              className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-emerald-900/30 text-sm font-mono"
-            >
-              {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
-            </button>
+          {/* 1. Кнопка AGV */}
+          <button
+            disabled={loading.agv || !selectedCell || selectedCell.status === 'FREE'}
+            onClick={() => handleAction('robot/agv/start', 'agv')}
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-emerald-900/30 text-sm font-mono"
+          >
+            {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
+          </button>
 
-            <button
-              disabled={loading.drone}
-              onClick={() => handleAction('drone/call', 'drone')}
-              className="flex-1 py-3 px-4 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-cyan-900/30 text-sm font-mono"
-            >
-              {loading.drone ? '⏱ DROHNE FLIEGT...' : '🛸 DROHNE RUFEN'}
-            </button>
-          </div>
+          {/* 2. Кнопка дрона */}
+          <button
+            disabled={loading.droneProduction}
+            onClick={() => handleAction('robot/drone/production', 'droneProduction')}
+            className="w-full py-3 px-4 bg-sky-700 hover:bg-sky-600 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-sky-900/30 text-sm font-mono"
+          >
+            {loading.droneProduction ? '⏱ DROHNE FLIEGT...' : '🛸 DROHNE: LAGER -> PRODUKTIONSHALLE'}
+          </button>
 
+          {/* 3. Кнопка RESET */}
           <button
             disabled={loading.reset}
             onClick={() => handleAction('reset', 'reset')}
