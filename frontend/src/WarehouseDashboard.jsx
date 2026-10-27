@@ -73,8 +73,12 @@ const WarehouseDashboard = () => {
             const response = await fetch(`${backendBaseUrl}/api/cells`);
             if (response.ok) {
                 const data = await response.json();
+                 // ВСТАВЛЯЕМ СЮДА ДЛЯ ТЕСТА:
+                console.log("=== ДАННЫЕ С БЭКЕНДА ===", data);
+
                 setCells(data);
                 setIsOnline(true);
+
             }
         } catch (err) {
             console.error("Ошибка обновления дашборда:", err);
