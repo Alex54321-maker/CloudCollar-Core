@@ -20,11 +20,30 @@ const WarehouseDashboard = () => {
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
     // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА
-
-// Автоматически переключает адрес бэкенда в зависимости от того, где открыт сайт
     const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:8000'
-    : 'https://cloudcollar-backend.onrender.com';
+    : 'https://cloudcollar-backend.onrender.com'
+
+
+    // ЖЕСТКАЯ ГЕНЕРАЦИЯ БУКВЕННО-ЦИФРОВОГО ШАБЛОНА НА СТРОГО 20 ЯЧЕЕК (5x4)
+    const defaultCells = (() => {
+        const rows = ['A', 'B', 'C', 'D'];
+        const cols = ['1', '2', '3', '4', '5'];
+        const acc = {};
+
+        rows.forEach(r => {
+            cols.forEach(c => {
+                const cellId = `${r}${c}`;
+                acc[cellId] = { status: 'free', pallet_weight: 0 };
+            });
+        });
+        return acc;
+    })();
+
+
+
+    // Безопасное слияние дефолта и ответа бэкенда (dict1 | dict2)
+    const mergedCells = { ...defaultCells, ...cells };
 
     // --- 4. АСИНХРОННАЯ ФУНКЦИЯ ЗАГРУЗКИ ЛОГОВ ПОРЦИЯМИ ---
     const fetchNextLogs = async () => {
@@ -63,7 +82,6 @@ const WarehouseDashboard = () => {
         }
     };
 
-    // Функция мгновенного очищения для триггера сброса кнопки RESET
     const handleResetSuccess = () => {
         fetchDashboardData();
         setSelectedCell('');
@@ -105,8 +123,10 @@ const WarehouseDashboard = () => {
                         robots={activeRobots}
                         isOnline={isOnline}
                         selectedCell={selectedCell}
+                        cells={mergedCells}
                         onResetSuccess={handleResetSuccess}
                         onDroneDeliverySuccess={(payload) => {
+                            // ВОЗВРАЩАЕМ ТВОЮ ОРИГИНАЛЬНУЮ ЛОГИКУ: берем sku и weight_kg
                             setProductionItems(prev => [...prev, {
                                 sku: payload.sku,
                                 weight: payload.weight_kg,
@@ -124,7 +144,7 @@ const WarehouseDashboard = () => {
                         </div>
 
                         <div className="grid grid-cols-5 gap-2 p-2">
-                            {Object.entries(cells).map(([cellId, cellData]) => {
+                            {Object.entries(mergedCells).map(([cellId, cellData]) => {
                                 const status = typeof cellData === 'object' ? cellData.status : cellData;
                                 const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
                                 const isSelected = selectedCell === cellId;

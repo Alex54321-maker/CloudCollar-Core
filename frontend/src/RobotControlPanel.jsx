@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onDroneDeliverySuccess }) => {
+const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cells = {}, onDroneDeliverySuccess }) => {
   const [loading, setLoading] = useState({ agv: false, drone: false, droneProduction: false, reset: false });
   const [log, setLog] = useState('');
 
@@ -8,10 +8,26 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onD
   const [inputSku, setInputSku] = useState('SKU-6500');
   const [inputWeight, setInputWeight] = useState('12.88');
 
-  // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА: теперь шлем запросы на локальный компьютер
+  // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА
   const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:8000'
     : 'https://cloudcollar-backend.onrender.com';
+
+  // ВЫЧИСЛЯЕМ СТАТУС ВЫБРАННОЙ ЯЧЕЙКИ (Принудительно переводим ключ в строку)
+  const cellKey = selectedCell ? String(selectedCell) : '';
+  const currentCellData = cells[cellKey];
+
+  const rawStatus = typeof currentCellData === 'object' ? currentCellData.status : currentCellData;
+
+  // Безопасно переводим в нижний регистр
+  const cellStatus = rawStatus ? String(rawStatus).toLowerCase() : '';
+  // --- ТЕПЕРЬ С АВТОВАЛИДАЦИЕЙ ДЛЯ КАЖДОГО РОБОТА ПО ОТДЕЛЬНОСТИ ---
+
+  // Для AGV: кнопка заблокирована, если ячейка ЗАНЯТА (туда нельзя привезти новый груз) или не выбрана
+  const isAgvDisabled = !cellKey || cellStatus === 'occupied' || cellStatus === 'busy';
+
+  // Для Дрона: кнопка заблокирована, если ячейка ПУСТАЯ (оттуда нельзя забрать груз) или не выбрана
+  const isDroneDisabled = !cellKey || cellStatus === 'free' || cellStatus === '';
   const handleAction = async (endpoint, robotKey) => {
     if (!isOnline) {
       setLog(`Fehler: Keine Verbindung zum Hauptsystem!`);
@@ -19,7 +35,7 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onD
     }
 
     setLoading(prev => ({ ...prev, [robotKey]: true }));
-    setLog(`Befehl для ${robotKey.toUpperCase()} wird gesendet...`);
+    setLog(`Befehl für ${robotKey.toUpperCase()} wird gesendet...`);
 
     try {
       const url = robotKey === 'reset'
@@ -44,8 +60,6 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onD
       if (response.ok) {
         setLog(`[${data.robot_id || robotKey.toUpperCase()}]: ${data.message}`);
 
-
-        // Подменяем или берем реальные параметры из инпутов, если бэкенд прислал пустоту
         if (robotKey === 'droneProduction' && typeof onDroneDeliverySuccess === 'function') {
           const fakePayload = {
             sku: inputSku,
@@ -77,9 +91,9 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onD
       <div className="flex flex-col gap-3 mb-4">
         <div className="text-xs font-mono text-slate-400 flex flex-col gap-1 mb-1">
           <div>
-            Abhol-Zelle (AGV) / Откуда:{" "}
+            Abhol-Zelle / Откуда:{" "}
             <span className={`${selectedCell ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
-              {selectedCell ? selectedCell : 'C1 (По умолчанию)'}
+              {selectedCell ? `Ячейка №${selectedCell} (${cellStatus})` : 'Выберите ячейку на карте'}
             </span>
           </div>
           <div>
@@ -111,19 +125,21 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, onD
         {/* БЛОК КНОПОК УПРАВЛЕНИЯ */}
         <div className="flex flex-col gap-2">
           {/* 1. Кнопка AGV */}
-          <button
-            disabled={loading.agv || !selectedCell || selectedCell.status === 'FREE'}
-            onClick={() => handleAction('robot/agv/start', 'agv')}
-            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-emerald-900/30 text-sm font-mono"
-          >
-            {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
-          </button>
+        {/* 1. Кнопка AGV — Исправленный вариант */}
+        <button
+          disabled={loading.agv || isAgvDisabled} // Использовать эту переменную!
+          onClick={() => handleAction('robot/agv/start', 'agv')}
+          className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-emerald-900/30 text-sm font-mono"
+        >
+          {loading.agv ? '⏱ AGV LÄUFT...' : '🤖 AGV STARTEN'}
+        </button>
 
-          {/* 2. Кнопка дрона */}
+
+          {/* 2. Кнопка дрона — ТЕПЕРЬ С АВТОВАЛИДАЦИЕЙ */}
           <button
-            disabled={loading.droneProduction}
+            disabled={loading.droneProduction || isDroneDisabled} // Использовать эту переменную!
             onClick={() => handleAction('robot/drone/production', 'droneProduction')}
-            className="w-full py-3 px-4 bg-sky-700 hover:bg-sky-600 disabled:bg-slate-800 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-sky-900/30 text-sm font-mono"
+            className="w-full py-3 px-4 bg-sky-700 hover:bg-sky-600 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium rounded-xl transition duration-200 active:scale-95 shadow-lg shadow-sky-900/30 text-sm font-mono"
           >
             {loading.droneProduction ? '⏱ DROHNE FLIEGT...' : '🛸 DROHNE: LAGER -> PRODUKTIONSHALLE'}
           </button>

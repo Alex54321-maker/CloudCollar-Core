@@ -436,15 +436,22 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/api/admin/repair-cells")
 async def repair_cells():
-    """Технический эндпоинт для принудительной разметки ячеек склада."""
+    """Технический эндпоинт для принудительной разметки всех 20 ячеек склада."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM storage_map")
-        default_cells = [('A1',), ('A2',), ('B1',), ('B2',), ('C1',), ('C2',)]
+
+        # Генерируем полный питоновский список из 20 ячеек для базы данных
+        default_cells = []
+        for row in ['A', 'B', 'C', 'D']:
+            for col in range(1, 6):
+                default_cells.append((f"{row}{col}",))  # Добавляем кортеж ('A1',), ('A2',) и т.д.
+
         cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
-        cursor.execute("INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp) VALUES ('SYSTEM_CONTROLLER', 'RESET_WAREHOUSE', 'ALL', 'SYSTEM', 0.0, datetime('now'))")
+        cursor.execute(
+            "INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp) VALUES ('SYSTEM_CONTROLLER', 'RESET_WAREHOUSE', 'ALL', 'SYSTEM', 0.0, datetime('now'))")
         conn.commit()
-    return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized!"}
+    return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized with 20 cells (A1-D5)!"}
 
 
 @app.get("/", response_class=HTMLResponse)
