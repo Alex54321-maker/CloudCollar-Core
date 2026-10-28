@@ -9,9 +9,9 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cel
   const [inputWeight, setInputWeight] = useState('12.88');
 
   // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА
-  const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-     ? 'http://localhost:8000'
-    : 'https://cloudcollar-backend.onrender.com';
+ //  const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    //  ? 'http://localhost:8000'
+    const backendBaseUrl ='https://cloudcollar-backend.onrender.com';
 
   // ВЫЧИСЛЯЕМ СТАТУС ВЫБРАННОЙ ЯЧЕЙКИ (Принудительно переводим ключ в строку)
   const cellKey = selectedCell ? String(selectedCell) : '';

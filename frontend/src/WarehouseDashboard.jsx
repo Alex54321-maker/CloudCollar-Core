@@ -20,9 +20,9 @@ const WarehouseDashboard = () => {
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
     // ДИНАМИЧЕСКИЙ АДРЕС БЭКЕНДА
-    const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000'
-    : 'https://cloudcollar-backend.onrender.com'
+  //    const backendBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    // ? 'http://localhost:8000'
+     const backendBaseUrl = 'https://cloudcollar-backend.onrender.com'
 
 
     // ЖЕСТКАЯ ГЕНЕРАЦИЯ БУКВЕННО-ЦИФРОВОГО ШАБЛОНА НА СТРОГО 20 ЯЧЕЕК (5x4)
