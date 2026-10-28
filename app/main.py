@@ -8,11 +8,12 @@ import logging
 import os
 import re
 import sqlite3
+from contextlib import asynccontextmanager  # Менеджер для lifespan
 from fastapi import FastAPI, HTTPException, Body, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
-from postmarker.core import requests  # Ваша библиотека requests
-from dotenv import load_dotenv  # Подключаем загрузчик .env файлов
+from postmarker.core import requests
+from dotenv import load_dotenv
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -21,79 +22,99 @@ load_dotenv()
 from app.database import get_db_connection, init_warehouse_db, save_system_log, add_new_warehouse_cell
 from app.schemas import ActionRequest, RobotResponse, CellCreate
 
-app = FastAPI(title="CloudCollar Smart Warehouse v2.5")
+logger = logging.getLogger("uvicorn.error")
+
+
+# =========================================================================
+# 🌅 АВТОМАТИЧЕСКИЙ LIFESPAN ДЛЯ ИНИЦИАЛИЗАЦИИ СЕТКИ 5x4 (20 ЯЧЕЕК)
+# =========================================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """При каждом старте сервера гарантированно размечает 20 ячеек в SQLite"""
+    try:
+        logger.info("🤖 [LOGISTIC OS]: Запуск инициализации базы данных...")
+        init_warehouse_db()  # Создаем таблицы, если их нет
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Очищаем старую разметку, чтобы избавиться от старой сетки из 6 ячеек
+            cursor.execute("DELETE FROM storage_map")
+
+            default_cells = []
+            for row in ['A', 'B', 'C', 'D']:
+                for col in range(1, 6):
+                    default_cells.append((f"{row}{col}",))
+
+            cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
+            cursor.execute(
+                "INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp) "
+                "VALUES ('SYSTEM_CONTROLLER', 'RESET_WAREHOUSE', 'ALL', 'SYSTEM', 0.0, datetime('now'))"
+            )
+            conn.commit()
+        logger.info("✅ [LOGISTIC OS]: База успешно инициализирована. Сетка 5x4 (20 ячеек) активна.")
+    except Exception as e:
+        logger.error(f"🚨 [LOGISTIC OS] Ошибка при старте lifespan: {e}")
+    yield
+
+
+# Инициализируем FastAPI с привязкой к жизненному циклу сервера
+app = FastAPI(title="CloudCollar Smart Warehouse v2.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешает запросы с любого адреса (включая ваш localhost:5173)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Разрешает любые методы: GET, POST и т.д.
-    allow_headers=["*"],  # Разрешает любые заголовки
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Инициализируем базу данных при старте сервера
-init_warehouse_db()
 
-
-# Создаем модель для валидации ответа
+# Модель для валидации ответа роботов
 class RobotResponse(BaseModel):
     status: str
     message: str
     robot_id: str
     payload: dict = {}
-
-
 # =========================================================================
 # 🤖 УМНЫЙ ЭНДПОИНТ ЗАПУСКА AGV (С ПОДДЕРЖКОЙ ЛЮБЫХ ФОРМАТОВ ВЕСА)
 # =========================================================================
 @app.post("/api/robot/agv/start", response_model=RobotResponse)
-async def start_agv(request: dict = Body(...)):  # <-- Принимаем dict вместо ActionRequest, чтобы убрать ошибку 422
+async def start_agv(request: dict = Body(...)):
     """Принимает выбранную ячейку, SKU и вес из React и сохраняет в SQLite"""
-
-    # 1. Безопасно вытаскиваем SKU. Если пусто или пришла заглушка 'string' — генерируем случайный
     sku_input = request.get("sku")
     sku_id = sku_input if (sku_input and sku_input != "string") else f"SKU-{random.randint(1000, 9999)}"
 
-    # 2. ИСПРАВЛЕНИЕ: Проверяем оба ключа веса — и pallet_weight (от React), и weight (старый макет)
     weight_input = request.get("pallet_weight") if request.get("pallet_weight") is not None else request.get("weight")
-
     try:
         simulated_weight = float(weight_input) if weight_input else round(random.uniform(10.0, 50.0), 2)
     except (ValueError, TypeError):
         simulated_weight = round(random.uniform(10.0, 50.0), 2)
 
-    # 3. Считываем ячейку назначения
     cell_input = request.get("cell_code")
     target_cell = cell_input if cell_input else "C1"
 
     try:
-        conn = sqlite3.connect("warehouse_core.db")
-        cursor = conn.cursor()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           UPDATE storage_map
+                           SET is_occupied   = 1,
+                               sku           = ?,
+                               pallet_weight = ?
+                           WHERE cell_code = ?
+                           """, (sku_id, simulated_weight, target_cell))
 
-        # Записываем в базу именно те данные, которые ввёл пользователь на экране
-        cursor.execute("""
-                       UPDATE storage_map
-                       SET is_occupied   = 1,
-                           sku           = ?,
-                           pallet_weight = ?
-                       WHERE cell_code = ?
-                       """, (sku_id, simulated_weight, target_cell))
-
-        # Записываем отчет в transfer_logs для мгновенного отображения в ленте логов
-        cursor.execute("""
-                       INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
-                       VALUES (?, 'LOAD', ?, ?, ?)
-                       """, ("AGV_REACT_PANEL", target_cell, sku_id, simulated_weight))
-
-        conn.commit()
-        conn.close()
-
-    except sqlite3.OperationalError as e:
+            cursor.execute("""
+                           INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                           VALUES (?, 'LOAD', ?, ?, ?)
+                           """, ("AGV_REACT_PANEL", target_cell, sku_id, simulated_weight))
+            conn.commit()
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
 
     return {
         "status": "success",
-        "message": f"AGV-Roboter hat die Zelle {target_cell} erfolgreich с Fracht {sku_id} beladen.",
+        "message": f"AGV-Roboter hat die Zelle {target_cell} erfolgreich mit Fracht {sku_id} beladen.",
         "robot_id": "AGV_Robot_01",
         "payload": {
             "sku": sku_id,
@@ -102,82 +123,65 @@ async def start_agv(request: dict = Body(...)):  # <-- Принимаем dict �
         }
     }
 
-
 # =========================================================================
 # 🚨 АДМИНИСТРАТИВНЫЙ СБРОС СИСТЕМЫ СКЛАДА
 # =========================================================================
 @app.post("/api/warehouse/reset")
 async def reset_warehouse():
-    """Сбрасывает состояние всех ячеек в SQLite (включая C1) в статус FREE"""
+    """Сбрасывает состояние всех ячеек в SQLite в статус FREE"""
     try:
-        conn = sqlite3.connect("warehouse_core.db")
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE storage_map
-            SET is_occupied = 0,
-                sku = NULL,
-                pallet_weight = 0.0
-        """)
-        conn.commit()
-        conn.close()
-        try:
-            save_system_log("SYSTEM", "Warehouse state has been fully reset to initial state.")
-        except Exception:
-            pass
-    except sqlite3.OperationalError as e:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE storage_map
+                SET is_occupied = 0,
+                    sku = NULL,
+                    pallet_weight = 0.0
+            """)
+            conn.commit()
+            try:
+                save_system_log("SYSTEM", "Warehouse state has been fully reset to initial state.")
+            except Exception:
+                pass
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Datenbankfehler beim Zurücksetzen: {str(e)}")
     return {"status": "success", "message": "Система склада успешно сброшена. Все ячейки свободны.",
             "robot_id": "SYS_ADMIN", "payload": {}}
 
-
-# =========================================================================
 # =========================================================================
 # 🛸 УМНЫЙ ВЫЗОВ ДРОНА ИЗ REACT ИНТЕРФЕЙСА (СВЯЗАННЫЙ С ЛОГИСТИКОЙ СКЛАДА)
 # =========================================================================
 @app.post("/api/robot/drone/call", response_model=RobotResponse)
 async def call_drone(request: dict = Body(...)):
     """Принимает ячейку забора и отправляет дрон с грузом в Цех 1 (Werk 1), освобождая ячейку"""
-
-    # Проверяем все возможные ключи, которые может прислать фронтенд
     pickup_cell = request.get("cell_code") or request.get("cell")
-
-    # Если фронтенд вообще ничего не прислал (None или пустая строка) — только тогда берем C1
     if not pickup_cell or pickup_cell == "string":
         pickup_cell = "C1"
 
     destination = request.get("destination", "Werk 1")
     sku_id = request.get("sku", "SKU-6500")
-
     weight_input = request.get("pallet_weight", 0.0)
 
     try:
-        conn = sqlite3.connect("warehouse_core.db")
-        cursor = conn.cursor()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           UPDATE storage_map
+                           SET is_occupied   = 0,
+                               sku           = NULL,
+                               pallet_weight = 0.0
+                           WHERE cell_code = ?
+                           """, (pickup_cell,))
 
-        # 2. Дрон забирает груз -> освобождаем ячейку склада в БД
-        cursor.execute("""
-                       UPDATE storage_map
-                       SET is_occupied   = 0,
-                           sku           = NULL,
-                           pallet_weight = 0.0
-                       WHERE cell_code = ?
-                       """, (pickup_cell,))
-
-        # 3. Записываем отчет в transfer_logs об успешной отгрузке дроном (UNLOAD)
-        cursor.execute("""
-                       INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
-                       VALUES (?, 'UNLOAD', ?, ?, ?)
-                       """, ("Delivery_Drone_02", pickup_cell, sku_id, weight_input))
-
-        conn.commit()
-        conn.close()
-
-    except sqlite3.OperationalError as e:
+            cursor.execute("""
+                           INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                           VALUES (?, 'UNLOAD', ?, ?, ?)
+                           """, ("Delivery_Drone_02", pickup_cell, sku_id, weight_input))
+            conn.commit()
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
 
-    # Симулируем параметры дрона для красивого ответа в интерфейс
     simulated_battery = f"{random.randint(75, 99)}%"
-
     return {
         "status": "success",
         "message": f"Drohne hat Fracht {sku_id} aus Zelle {pickup_cell} abgeholt und fliegt zu {destination}.",
@@ -189,59 +193,50 @@ async def call_drone(request: dict = Body(...)):
         }
     }
 
-
 # =========================================================================
-# 🛸 АВТОМАТИЧЕСКИЙ ДРОН: ИЗ ЛАГЕРА В ПРОДУКЦИОННУЮ ЗОНУ (С ОСВОБОЖДЕНИЕМ ЯЧЕЙКИ)
+# 🛸 АВТОМАТИЧЕСКИЙ ДРОН: ИЗ ЛАГЕРА В ПРОДУКЦИОННУЮ ЗОНУ
 # =========================================================================
 @app.post("/api/robot/drone/production", response_model=RobotResponse)
 async def start_drone_to_production(request: dict = Body(...)):
     """Дрон забирает груз из выбранной ячейки склада и переносит в изолированную зону цеха"""
-
-    # Получаем ячейку забора груза, которую кликнул пользователь на экране
     pickup_cell = request.get("cell_code") or request.get("cell")
     if not pickup_cell or pickup_cell == "string":
-        raise HTTPException(status_code=400, detail="Bitte wählen Sie сначала Zelle auf der Karte!")
+        raise HTTPException(status_code=400, detail="Bitte wählen Sie zunächst eine Zelle auf der Karte!")
 
     try:
-        conn = sqlite3.connect("warehouse_core.db")
-        conn.row_factory = sqlite3.Row  # Чтобы читать данные по именам колонок
-        cursor = conn.cursor()
+        with get_db_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT sku, pallet_weight, is_occupied FROM storage_map WHERE cell_code = ?", (pickup_cell,))
+            row = cursor.fetchone()
 
-        # 1. Проверяем, есть ли груз в этой ячейке
-        cursor.execute("SELECT sku, pallet_weight, is_occupied FROM storage_map WHERE cell_code = ?", (pickup_cell,))
-        row = cursor.fetchone()
+            if not row or row["is_occupied"] == 0:
+                raise HTTPException(status_code=400, detail=f"Zelle {pickup_cell} ist leer! Es gibt nichts für den Drohnenflug.")
 
-        if not row or row["is_occupied"] == 0:
-            conn.close()
-            raise HTTPException(status_code=400, detail=f"Zelle {pickup_cell} ist leer! Es gibt ничего для дрона.")
+            sku_id = row["sku"]
+            weight_input = row["pallet_weight"]
 
-        sku_id = row["sku"]
-        weight_input = row["pallet_weight"]
+            cursor.execute("""
+                           UPDATE storage_map
+                           SET is_occupied   = 0,
+                               sku           = NULL,
+                               pallet_weight = 0.0
+                           WHERE cell_code = ?
+                           """, (pickup_cell,))
 
-        # 2. ДРОН ЗАБИРАЕТ ГРУЗ -> Освобождаем ячейку склада (FREE)
-        cursor.execute("""
-                       UPDATE storage_map
-                       SET is_occupied   = 0,
-                           sku           = NULL,
-                           pallet_weight = 0.0
-                       WHERE cell_code = ?
-                       """, (pickup_cell,))
-
-        # 3. Записываем отчет в transfer_logs для Infinite Scroll и фронтенда
-        cursor.execute("""
-                       INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
-                       VALUES (?, 'PRODUCTION_DELIVERY', 'PROD_ZONE', ?, ?)
-                       """, (f"Drone_To_Production", sku_id, weight_input))
-
-        conn.commit()
-        conn.close()
-
-    except sqlite3.OperationalError as e:
+            cursor.execute("""
+                           INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                           VALUES (?, 'PRODUCTION_DELIVERY', 'PROD_ZONE', ?, ?)
+                           """, ("Drone_To_Production", sku_id, weight_input))
+            conn.commit()
+    except HTTPException as he:
+        raise he
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
 
     return {
         "status": "success",
-        "message": f"Drohne_01 hat Fracht {sku_id} ({weight_input} kg) aus Zelle {pickup_cell} erfolgreich в Produktionsbereich доставлен.",
+        "message": f"Drohne_01 hat Fracht {sku_id} ({weight_input} kg) aus Zelle {pickup_cell} erfolgreich in den Produktionsbereich geliefert.",
         "robot_id": "Drohne_01",
         "payload": {
             "sku": sku_id,
@@ -250,22 +245,16 @@ async def start_drone_to_production(request: dict = Body(...)):
             "destination": "Produktionsbereich"
         }
     }
-
-
-
 # --- МЕНЕДЖЕР МУЛЬТИ-ПОДКЛЮЧЕНИЙ (WebSocket) ---
 class WarehouseConnectionManager:
     def __init__(self):
         self.active_connections = []
-
     async def class_connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-
     async def broadcast(self, message: dict):
         for connection in self.active_connections:
             try:
@@ -291,15 +280,15 @@ def send_telegram_alert(message: str):
 async def get_cells_status():
     """Отдает текущее состояние всех ячеек для Auto-Sync"""
     with get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT cell_code, sku, pallet_weight as weight, is_occupied FROM storage_map")
+        cursor.execute("SELECT cell_code, sku, pallet_weight, is_occupied FROM storage_map")
         rows = cursor.fetchall()
         matrix_data = {}
         for row in rows:
-            cell_data = dict(row)
-            cell_code = cell_data["cell_code"]
-            is_occupied = cell_data["is_occupied"]
-            weight = cell_data.get("weight", 0) or 0
+            cell_code = row["cell_code"]
+            is_occupied = row["is_occupied"]
+            weight = row["pallet_weight"] or 0.0
             status_str = "occupied" if is_occupied == 1 else "free"
             matrix_data[cell_code] = {
                 "status": status_str,
@@ -341,7 +330,7 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
         duplicate_sku = cursor.fetchone()
 
         if duplicate_sku:
-            dup_cell = duplicate_sku[0] if isinstance(duplicate_sku, tuple) else duplicate_sku.get("cell_code", "A1")
+            dup_cell = duplicate_sku if isinstance(duplicate_sku, tuple) else duplicate_sku.get("cell_code", "A1")
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Товар с SKU {current_sku} уже в ячейке {dup_cell}!")
 
         if 100.0 <= current_weight <= 150.0:
@@ -366,7 +355,7 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
             else:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Склад переполнен!")
 
-        target_cell = row[0] if isinstance(row, tuple) else row.get("cell_code", "C1")
+        target_cell = row if isinstance(row, tuple) else row.get("cell_code", "C1")
         cursor.execute("UPDATE storage_map SET sku = ?, pallet_weight = ?, is_occupied = 1 WHERE cell_code = ?", (current_sku, current_weight, target_cell))
         cursor.execute("INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight) VALUES (?, 'LOAD', ?, ?, ?)", (f"AGV_Robot_{device_id}", target_cell, current_sku, float(current_weight)))
         conn.commit()
@@ -388,8 +377,8 @@ async def arrow_down_pickup(data: ActionRequest):
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Produkt mit SKU {data.sku} nicht gefunden!")
 
-        target_cell = row["cell_code"] if not isinstance(row, tuple) else row[0]
-        weight = row["pallet_weight"] if not isinstance(row, tuple) else row[1]
+        target_cell = row["cell_code"] if not isinstance(row, tuple) else row
+        weight = row["pallet_weight"] if not isinstance(row, tuple) else row
 
         cursor.execute("UPDATE storage_map SET sku = NULL, pallet_weight = 0, is_occupied = 0 WHERE cell_code = ?", (target_cell,))
         cursor.execute("INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight) VALUES (?, 'UNLOAD', ?, ?, ?)", (f"Delivery_Drone_{data.device_id}", target_cell, data.sku, weight))
@@ -422,10 +411,7 @@ def get_warehouse_logs(offset: int = 0, limit: int = 20):
 
 @app.websocket("/ws/warehouse")
 async def websocket_endpoint(websocket: WebSocket):
-    # Добавь эту строчку ПЕРВЫМ делом внутрь функции:
-    # Она принудительно одобряет входящий звонок с телефона
     await websocket.accept()
-
     await manager.class_connect(websocket)
     try:
         while True:
@@ -436,20 +422,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/api/admin/repair-cells")
 async def repair_cells():
-    """Технический эндпоинт для принудительной разметки всех 20 ячеек склада."""
+    """Технический эндпоинт для ручной принудительной разметки."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM storage_map")
-
-        # Генерируем полный питоновский список из 20 ячеек для базы данных
         default_cells = []
         for row in ['A', 'B', 'C', 'D']:
             for col in range(1, 6):
-                default_cells.append((f"{row}{col}",))  # Добавляем кортеж ('A1',), ('A2',) и т.д.
-
+                default_cells.append((f"{row}{col}",))
         cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
-        cursor.execute(
-            "INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp) VALUES ('SYSTEM_CONTROLLER', 'RESET_WAREHOUSE', 'ALL', 'SYSTEM', 0.0, datetime('now'))")
         conn.commit()
     return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized with 20 cells (A1-D5)!"}
 
