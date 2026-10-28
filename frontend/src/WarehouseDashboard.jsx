@@ -123,21 +123,26 @@ const WarehouseDashboard = () => {
 
                 {/* КОЛОНКА 1: Управление роботами */}
                 <div className="space-y-6">
-                    <RobotControlPanel
-                        robots={activeRobots}
-                        isOnline={isOnline}
-                        selectedCell={selectedCell}
-                        cells={mergedCells}
-                        onResetSuccess={handleResetSuccess}
-                        onDroneDeliverySuccess={(payload) => {
-                            // ВОЗВРАЩАЕМ ТВОЮ ОРИГИНАЛЬНУЮ ЛОГИКУ: берем sku и weight_kg
-                            setProductionItems(prev => [...prev, {
-                                sku: payload.sku,
-                                weight: payload.weight_kg,
-                                timestamp: new Date().toLocaleTimeString()
-                            }]);
-                        }}
-                    />
+                   <RobotControlPanel
+    robots={activeRobots}
+    isOnline={isOnline}
+    selectedCell={selectedCell}
+    cells={mergedCells}
+    onResetSuccess={handleResetSuccess}
+
+    // 🟢 ДОБАВЬТЕ ЭТУ СТРОЧКУ СЮДА:
+    onAgvSuccess={() => fetchDashboardData()}
+
+    onDroneDeliverySuccess={(payload) => {
+        fetchDashboardData();
+        setProductionItems(prev => [...prev, {
+            sku: payload.sku,
+            weight: payload.weight_kg,
+            timestamp: new Date().toLocaleTimeString()
+        }]);
+    }}
+/>
+
                 </div>
 
                 {/* КОЛОНКА 2: Интерактивная карта стеллажей */}
