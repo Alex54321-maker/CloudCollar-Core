@@ -306,10 +306,12 @@ def create_cell(cell_data: CellCreate):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+
 @app.post("/api/action/arrow-up", status_code=status.HTTP_200_OK)
 async def arrow_up_unload(data: ActionRequest = Body(...)):
-    """Стрелка Вверх: Автоматическая приемка товара на склад"""
+    """Стрелка Вверх: Интеллектуальная приемка товара в выбранную или свободную ячейку (Все 20 ячеек)"""
     device_id = str(data.device_id) if data.device_id and data.device_id != "string" else "01"
+
     try:
         current_weight = float(data.weight)
     except (ValueError, TypeError):
@@ -318,50 +320,83 @@ async def arrow_up_unload(data: ActionRequest = Body(...)):
     if current_weight <= 0.0:
         current_weight = round(random.uniform(10.0, 220.0), 2)
 
-    current_sku = str(data.sku) if data.sku and data.sku != "string" and data.sku != "SKU-UNKNOWN" else f"SKU-{random.randint(1000, 9999)}"
+    current_sku = str(
+        data.sku) if data.sku and data.sku != "string" and data.sku != "SKU-UNKNOWN" else f"SKU-{random.randint(1000, 9999)}"
 
     if current_weight > 200.0:
-        save_system_log(level="CRITICAL", message=f"KRITISCHES GEWICHT! AGV-Robot {device_id} transportiert {current_weight} kg", cell_id="A")
+        save_system_log(level="CRITICAL",
+                        message=f"KRITISCHES GEWICHT! AGV-Robot {device_id} transportiert {current_weight} kg",
+                        cell_id="A")
         send_telegram_alert(f"🚨 KRITISCHES GEWICHT! AGV-Robot {device_id} зафиксировал {current_weight} kg!")
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
+
+        # 1. Проверка на дубликат SKU
         cursor.execute("SELECT cell_code FROM storage_map WHERE sku = ? AND is_occupied = 1 LIMIT 1", (current_sku,))
         duplicate_sku = cursor.fetchone()
-
         if duplicate_sku:
-            dup_cell = duplicate_sku if isinstance(duplicate_sku, tuple) else duplicate_sku.get("cell_code", "A1")
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Товар с SKU {current_sku} уже в ячейке {dup_cell}!")
+            dup_cell = duplicate_sku[0] if isinstance(duplicate_sku, tuple) else duplicate_sku.get("cell_code", "A1")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail=f"Товар с SKU {current_sku} уже в ячейке {dup_cell}!")
 
-        if 100.0 <= current_weight <= 150.0:
-            target_zone = "B"
-            target_cells = ('B1', 'B2')
-        else:
-            target_zone = "C"
-            target_cells = ('C1', 'C2')
+        # 2. ДИНАМИЧЕСКИЙ ОПРЕДЕЛИТЕЛЬ ЦЕЛИ (Исправление бага)
+        # Проверяем, прислал ли фронтенд конкретную целевую ячейку (например, D5)
+        # Если в ActionRequest есть поле cell_code / target_cell — берем его.
+        # Если нет — ищем ПЕРВУЮ СВОБОДНУЮ из ВСЕХ 20 ячеек в базе данных.
+        target_cell = None
 
-        query = "SELECT cell_code FROM storage_map WHERE is_occupied = 0 AND cell_code IN (?, ?) LIMIT 1"
-        cursor.execute(query, target_cells)
-        row = cursor.fetchone()
-        is_quarantine = False
-        zone_desc = f"Regalzone {target_zone}"
+        # Проверяем наличие переданной ячейки в запросе (адаптивно под pydantic/dict)
+        requested_cell = getattr(data, 'cell_code', None) or getattr(data, 'target_cell', None)
 
-        if not row:
-            cursor.execute("SELECT cell_code FROM storage_map WHERE is_occupied = 0 AND cell_code = 'A2' LIMIT 1")
+        if requested_cell and requested_cell != "string":
+            # Проверяем, свободна ли именно эта выбранная ячейка
+            cursor.execute("SELECT cell_code, is_occupied FROM storage_map WHERE cell_code = ?", (requested_cell,))
+            row = cursor.fetchone()
+            if row and (row[1] == 0 or row["is_occupied"] == 0):
+                target_cell = requested_cell
+            else:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                    detail=f"Выбранная ячейка {requested_cell} уже занята!")
+
+        # Если конкретная ячейка не была запрошена, ищем абсолютно любую свободную на складе
+        if not target_cell:
+            cursor.execute("SELECT cell_code FROM storage_map WHERE is_occupied = 0 ORDER BY cell_code ASC LIMIT 1")
             row = cursor.fetchone()
             if row:
-                is_quarantine = True
-                zone_desc = f"Zone {target_zone} - Umgeleitet nach Quarantäne A2"
+                target_cell = row[0] if isinstance(row, tuple) else row["cell_code"]
             else:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Склад переполнен!")
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                    detail="Склад полностью переполнен! Нет свободных ячеек из 20.")
 
-        target_cell = row if isinstance(row, tuple) else row.get("cell_code", "C1")
-        cursor.execute("UPDATE storage_map SET sku = ?, pallet_weight = ?, is_occupied = 1 WHERE cell_code = ?", (current_sku, current_weight, target_cell))
-        cursor.execute("INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight) VALUES (?, 'LOAD', ?, ?, ?)", (f"AGV_Robot_{device_id}", target_cell, current_sku, float(current_weight)))
+        # 3. Записываем данные в выбранную ячейку (теперь сюда попадет и D5, и любая другая)
+        cursor.execute("""
+            UPDATE storage_map 
+            SET sku = ?, pallet_weight = ?, is_occupied = 1 
+            WHERE cell_code = ?
+        """, (current_sku, current_weight, target_cell))
+
+        cursor.execute("""
+            INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight) 
+            VALUES (?, 'LOAD', ?, ?, ?)
+        """, (f"AGV_Robot_{device_id}", target_cell, current_sku, float(current_weight)))
+
         conn.commit()
 
-    ui_zone_status = "QUARANTINE" if is_quarantine else target_zone
-    payload = {"event": "LOAD_SUCCESS", "device": f"AGV_Robot_{device_id}", "cell": target_cell, "sku": current_sku, "weight": float(current_weight), "zone": zone_desc, "zone_status": ui_zone_status}
+    # Извлекаем зону (первую букву, например, 'D' из 'D5') для красивого лога на фронте
+    target_zone = target_cell[0] if target_cell else "Unknown"
+    zone_desc = f"Regalzone {target_zone}"
+
+    payload = {
+        "event": "LOAD_SUCCESS",
+        "device": f"AGV_Robot_{device_id}",
+        "cell": target_cell,
+        "sku": current_sku,
+        "weight": float(current_weight),
+        "zone": zone_desc,
+        "zone_status": target_zone
+    }
+
     await manager.broadcast(payload)
     return payload
 
