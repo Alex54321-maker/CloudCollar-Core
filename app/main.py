@@ -32,6 +32,11 @@ logger = logging.getLogger("uvicorn.error")
 async def lifespan(app: FastAPI):
     """При каждом старте сервера гарантированно размечает 20 ячеек в SQLite"""
     try:
+        # 🔥 ВОТ ЭТОТ КУСОК МЫ СЮДА СТАВИМ:
+        if os.path.exists("warehouse.db"):
+            logger.info("🗑️ Найдена старая база данных. Удаляем для сброса кэша...")
+            os.remove("warehouse.db")
+
         logger.info("🤖 [LOGISTIC OS]: Запуск инициализации базы данных...")
         init_warehouse_db()  # Создаем таблицы, если их нет
 
