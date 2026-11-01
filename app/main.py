@@ -46,8 +46,10 @@ async def lifespan(app: FastAPI):
             cursor.execute("DELETE FROM storage_map")
 
             default_cells = []
-            for row in ['A', 'B', 'C', 'D']:
-                for col in range(1, 6):
+            # Буквы от A до J (10 рядов)
+            for row in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']:
+                # Цикл range(1, 11) выдаст цифры от 1 до 10 (10 колонок)
+                for col in range(1, 11):
                     default_cells.append((f"{row}{col}",))
 
             cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)

@@ -25,20 +25,21 @@ const WarehouseDashboard = () => {
      const backendBaseUrl = 'https://cloudcollar-backend.onrender.com'
 
 
-    // ЖЕСТКАЯ ГЕНЕРАЦИЯ БУКВЕННО-ЦИФРОВОГО ШАБЛОНА НА СТРОГО 20 ЯЧЕЕК (5x4)
-    const defaultCells = (() => {
-        const rows = ['A', 'B', 'C', 'D'];
-        const cols = ['1', '2', '3', '4', '5'];
-        const acc = {};
+ const defaultCells = (() => {
+    // Расширяем массив букв до J и цифр до 10
+    const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    const cols = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+    const acc = {};
 
-        rows.forEach(r => {
-            cols.forEach(c => {
-                const cellId = `${r}${c}`;
-                acc[cellId] = { status: 'free', pallet_weight: 0 };
-            });
+    rows.forEach(r => {
+        cols.forEach(c => {
+            const cellId = `${r}${c}`;
+            acc[cellId] = { status: 'free', pallet_weight: 0 };
         });
-        return acc;
-    })();
+    });
+    return acc;
+})();
+
 
 
 
@@ -152,7 +153,8 @@ const WarehouseDashboard = () => {
                             <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
                         </div>
 
-                        <div className="grid grid-cols-5 gap-2 p-2">
+                        {/* ЗАМЕНЯЕМ ЕЁ НА 10 КОЛОНОК: */}
+                        <div className="grid grid-cols-10 gap-2 p-2">
                             {Object.entries(mergedCells).map(([cellId, cellData]) => {
                                 const status = typeof cellData === 'object' ? cellData.status : cellData;
                                 const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
