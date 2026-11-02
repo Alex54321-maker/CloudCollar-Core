@@ -106,7 +106,7 @@ const WarehouseDashboard = () => {
         return () => clearInterval(interval);
     }, []);
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 p-6 font-mono selection:bg-emerald-500 selection:text-black">
+            <div className="min-h-screen bg-white text-slate-900 p-6 font-mono selection:bg-emerald-500 selection:text-white">
             {/* Хедер системы */}
             <header className="border-b border-slate-800 pb-4 mb-6 flex justify-between items-center">
                 <div>
