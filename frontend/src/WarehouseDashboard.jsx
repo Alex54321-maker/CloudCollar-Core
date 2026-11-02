@@ -213,8 +213,7 @@ const WarehouseDashboard = () => {
                 </div>
 
                 {/* КОЛОНКА 3: Лог-поток Systemprotokoll */}
-                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-[600px]">
-                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
+                        <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-fit max-h-[350px]">                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
                         <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
                         <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
 
