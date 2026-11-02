@@ -51,8 +51,8 @@ const WarehouseDashboard = () => {
         if (isLoadingLogs || !hasMore) return;
         setIsLoadingLogs(true);
         try {
-            const response = await fetch(`${backendBaseUrl}/api/warehouse/logs?offset=${offset}&limit=20`);
-            if (!response.ok) throw new Error('Ошибка загрузки логов');
+            const response = await fetch(`${backendBaseUrl}/api/warehouse/logs?offset=${offset}&limit=5`);
+                if (!response.ok) throw new Error('Ошибка загрузки логов');
             const data = await response.json();
 
             if (data.length === 0) {
@@ -216,7 +216,8 @@ const WarehouseDashboard = () => {
                 <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-[600px]">
                     <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
                         <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
-                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: ASC</span>
+                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
+
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">

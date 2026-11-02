@@ -432,19 +432,22 @@ async def arrow_down_pickup(data: ActionRequest):
 
 
 @app.get("/api/warehouse/logs")
-def get_warehouse_logs(offset: int = 0, limit: int = 20):
-    """Умный эндпоинт логов для Infinite Scroll"""
+@app.get("/api/warehouse/logs")
+def get_warehouse_logs(offset: int = 0, limit: int = 5):
+    """Умный эндпоинт логов: строго 5 самых свежих событий (от новых к старым)"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM transfer_logs ORDER BY id ASC LIMIT ? OFFSET ?", (limit, offset))
+            # Меняем ASC на DESC и принудительно ставим лимит 5
+            cursor.execute("SELECT * FROM transfer_logs ORDER BY id DESC LIMIT 5 OFFSET ?", (offset,))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except sqlite3.OperationalError:
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM logs ORDER BY id ASC LIMIT ? OFFSET ?", (limit, offset))
+                # Резервный запрос в таблицу logs, если transfer_logs не доступна
+                cursor.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 5 OFFSET ?", (offset,))
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
         except sqlite3.OperationalError:
