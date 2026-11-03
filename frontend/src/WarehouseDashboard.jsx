@@ -214,34 +214,53 @@ const WarehouseDashboard = () => {
                             <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
                         </div>
 
-                        <div className="grid grid-cols-10 gap-2 p-2">
-                            {Object.entries(mergedCells).map(([cellId, cellData]) => {
-                                const status = typeof cellData === 'object' ? cellData.status : cellData;
-                                const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
-                                const isSelected = selectedCell === cellId;
+                      <div className="grid grid-cols-10 gap-2 p-2">
 
-                                return (
-                                    <div
-                                        key={cellId}
-                                        onClick={() => setSelectedCell(cellId)}
-                                        className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 cursor-pointer ${
-                                            isSelected ? 'bg-amber-500/20 border-amber-400 text-amber-300 scale-105 ring-2 ring-amber-500/50' :
-                                            status === 'busy' || status === 'occupied' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
-                                            status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
-                                            'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500 hover:text-slate-300'
-                                        }`}
-                                    >
-                                        <span className="font-bold">{cellId}</span>
-                                        <span className="text-[8px] opacity-60 uppercase">{status}</span>
-                                        {weight > 0 && (
-                                            <span className="text-[9px] text-amber-400 font-mono mt-1 px-1 bg-amber-500/10 rounded border border-amber-500/20 animate-pulse">
-                                                ⚖️ {weight} kg
-                                            </span>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
+    {/* 🚪 СЮДА ВСТАВЛЯЕМ КОРИДОРЫ (Они займут первый ряд сетки) */}
+    <div className="col-span-2 text-center text-[11px] font-bold text-amber-400 font-mono pb-1 border-b border-slate-800">
+        🚪 Gang 1
+    </div>
+    <div className="col-span-2 text-center text-[11px] font-bold text-amber-400 font-mono pb-1 border-b border-slate-800">
+        🚪 Gang 2
+    </div>
+    <div className="col-span-2 text-center text-[11px] font-bold text-amber-400 font-mono pb-1 border-b border-slate-800">
+        🚪 Gang 3
+    </div>
+    <div className="col-span-2 text-center text-[11px] font-bold text-amber-400 font-mono pb-1 border-b border-slate-800">
+        🚪 Gang 4
+    </div>
+    <div className="col-span-2 text-center text-[11px] font-bold text-amber-400 font-mono pb-1 border-b border-slate-800">
+        🚪 Gang 5
+    </div>
+
+    {/* 👇 СЛЕДУЮЩЕЙ СТРОЧКОЙ ИДЕТ НАЧАЛО ВАШЕГО СТАРОГО МЕТОДА .MAP() */}
+    {Object.entries(mergedCells).map(([cellId, cellData]) => {
+        const status = typeof cellData === 'object' ? cellData.status : cellData;
+        const weight = typeof cellData === 'object' ? cellData.pallet_weight : null;
+        const isSelected = selectedCell === cellId;
+
+        return (
+            <div
+                key={cellId}
+                onClick={() => setSelectedCell(cellId)}
+                className={`aspect-square border flex flex-col items-center justify-center rounded text-[10px] transition-all duration-300 cursor-pointer ${
+                    isSelected ? 'bg-amber-500/20 border-amber-400 text-amber-300 scale-105 ring-2 ring-amber-500/50' :
+                    status === 'busy' || status === 'occupied' ? 'bg-rose-950/40 border-rose-800 text-rose-400' :
+                    status === 'reserved' ? 'bg-amber-950/40 border-amber-800 text-amber-400' :
+                    'bg-slate-950 border-slate-800 text-slate-500 hover:border-emerald-500 hover:text-slate-300'
+                }`}
+            >
+                <span className="font-bold">{cellId}</span>
+                <span className="text-[8px] opacity-60 uppercase">{status}</span>
+                {weight > 0 && (
+                    <span className="text-[9px] text-amber-400 font-mono mt-1 px-1 bg-amber-500/10 rounded border border-amber-500/20 animate-pulse">
+                        ⚖️ {weight} kg
+                    </span>
+                )}
+            </div>
+        );
+    })}
+</div>
                     </div>
                 </div>
 
