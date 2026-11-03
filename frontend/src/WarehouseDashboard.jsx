@@ -120,40 +120,71 @@ const WarehouseDashboard = () => {
             </header>
 
             {/* Трехколоночный кибер-интерфейс */}
+
+            {/* Трехколоночный кибер-интерфейс */}
             <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
                 {/* КОЛОНКА 1: Управление роботами */}
                 <div className="space-y-6">
                    <RobotControlPanel
-    robots={activeRobots}
-    isOnline={isOnline}
-    selectedCell={selectedCell}
-    cells={mergedCells}
-    onResetSuccess={handleResetSuccess}
-
-    // 🟢 ДОБАВЬТЕ ЭТУ СТРОЧКУ СЮДА:
-    onAgvSuccess={() => fetchDashboardData()}
-
-    onDroneDeliverySuccess={(payload) => {
-        fetchDashboardData();
-        setProductionItems(prev => [...prev, {
-            sku: payload.sku,
-            weight: payload.weight_kg,
-            timestamp: new Date().toLocaleTimeString()
-        }]);
-    }}
-/>
-
+                        robots={activeRobots}
+                        isOnline={isOnline}
+                        selectedCell={selectedCell}
+                        cells={mergedCells}
+                        onResetSuccess={handleResetSuccess}
+                        onAgvSuccess={() => fetchDashboardData()}
+                        onDroneDeliverySuccess={(payload) => {
+                            fetchDashboardData();
+                            setProductionItems(prev => [...prev, {
+                                sku: payload.sku,
+                                weight: payload.weight_kg,
+                                timestamp: new Date().toLocaleTimeString()
+                            }]);
+                        }}
+                    />
                 </div>
 
-                {/* КОЛОНКА 2: Интерактивная карта стеллажей */}
+                {/* КОЛОНКА 2: Лог-поток Systemprotokoll (ТЕПЕРЬ ПО ЦЕНТРУ) */}
+                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-fit max-h-[350px]">
+                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
+                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
+                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
+                        {realLogs.map((log) => (
+                            <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
+                                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                                    <span>ID: {log.id} // {log.timestamp}</span>
+                                    <span className="uppercase text-slate-400 px-1 bg-slate-900 rounded">{log.level}</span>
+                                </div>
+                                <p className="text-slate-300 font-sans">{log.message}</p>
+                            </div>
+                        ))}
+
+                        {isLoadingLogs && (
+                            <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
+                                Загрузка следующей порции логов...
+                            </div>
+                        )}
+
+                        {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
+
+                        {!hasMore && (
+                            <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
+                                Конец протокола логов / Все данные загружены
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* КОЛОНКА 3: Интерактивная карта стеллажей (ТЕПЕРЬ СПРАВА) */}
                 <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col justify-between">
                     <div>
                         <div className="border-b border-slate-800 pb-2 mb-4">
                             <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
                         </div>
 
-                        {/* ЗАМЕНЯЕМ ЕЁ НА 10 КОЛОНОК: */}
                         <div className="grid grid-cols-10 gap-2 p-2">
                             {Object.entries(mergedCells).map(([cellId, cellData]) => {
                                 const status = typeof cellData === 'object' ? cellData.status : cellData;
@@ -212,41 +243,9 @@ const WarehouseDashboard = () => {
                     </div>
                 </div>
 
-                {/* КОЛОНКА 3: Лог-поток Systemprotokoll */}
-                        <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-fit max-h-[350px]">                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
-                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
-
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
-                        {realLogs.map((log) => (
-                            <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
-                                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                                    <span>ID: {log.id} // {log.timestamp}</span>
-                                    <span className="uppercase text-slate-400 px-1 bg-slate-900 rounded">{log.level}</span>
-                                </div>
-                                <p className="text-slate-300 font-sans">{log.message}</p>
-                            </div>
-                        ))}
-
-                        {isLoadingLogs && (
-                            <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
-                                Загрузка следующей порции логов...
-                            </div>
-                        )}
-
-                        {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
-
-                        {!hasMore && (
-                            <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
-                                Конец протокола логов / Все данные загружены
-                            </div>
-                        )}
-                    </div>
-                </div>
-
             </main>
+
+
         </div>
     );
 };
