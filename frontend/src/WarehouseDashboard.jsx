@@ -119,7 +119,6 @@ const WarehouseDashboard = () => {
                 </div>
             </header>
 
-            {/* Трехколоночный кибер-интерфейс */}
 
             {/* Трехколоночный кибер-интерфейс */}
             <main className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -144,42 +143,72 @@ const WarehouseDashboard = () => {
                     />
                 </div>
 
-                {/* КОЛОНКА 2: Лог-поток Systemprotokoll (ТЕПЕРЬ ПО ЦЕНТРУ) */}
-                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-fit max-h-[350px]">
-                    <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
-                        <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
+                                {/* КОЛОНКА 2: Лог-поток и Цех выгрузки (ПО ЦЕНТРУ) */}
+                <div className="flex flex-col gap-0">
+                    {/* Логи SQLite */}
+                    <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col h-fit max-h-[350px]">
+                        <div className="border-b border-slate-800 pb-2 mb-4 flex justify-between items-center">
+                            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Systemprotokoll / Логи SQLite</h2>
+                            <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Chrono: DESC</span>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
+                            {realLogs.map((log) => (
+                                <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
+                                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                                        <span>ID: {log.id} // {log.timestamp}</span>
+                                        <span className="uppercase text-slate-400 px-1 bg-slate-900 rounded">{log.level}</span>
+                                    </div>
+                                    <p className="text-slate-300 font-sans">{log.message}</p>
+                                </div>
+                            ))}
+
+                            {isLoadingLogs && (
+                                <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
+                                    Загрузка следующей порции логов...
+                                </div>
+                            )}
+
+                            {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
+
+                            {!hasMore && (
+                                <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
+                                    Конец протокола логов / Все данные загружены
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-2 pr-2 text-xs scrollbar-thin scrollbar-thumb-slate-800">
-                        {realLogs.map((log) => (
-                            <div key={log.id} className="p-2 bg-slate-950 border-l-2 border-slate-700 hover:border-emerald-500 rounded-r transition-colors">
-                                <div className="flex justify-between text-[10px] text-slate-500 mb-1">
-                                    <span>ID: {log.id} // {log.timestamp}</span>
-                                    <span className="uppercase text-slate-400 px-1 bg-slate-900 rounded">{log.level}</span>
+                    {/* ИЗОЛИРОВАННАЯ ЗОНА ПРОИЗВОДСТВА (Перенесена сюда с отступом 4 rem белого фона) */}
+                    <div className="mt-16 p-4 bg-sky-950/20 border border-sky-500/30 rounded-xl backdrop-blur-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
+                                🏭 Produktionsbereich / Цех выгрузки
+                            </h3>
+                            <span className="text-[9px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-mono">
+                                Складской списан
+                            </span>
+                        </div>
+                        <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+                            {productionItems.length === 0 ? (
+                                <div className="text-center py-3 text-[10px] text-slate-600 uppercase tracking-widest border border-dashed border-slate-800 rounded-lg">
+                                    Зона пуста. Ждем дрона...
                                 </div>
-                                <p className="text-slate-300 font-sans">{log.message}</p>
-                            </div>
-                        ))}
-
-                        {isLoadingLogs && (
-                            <div className="text-center py-2 text-slate-500 animate-pulse text-[11px]">
-                                Загрузка следующей порции логов...
-                            </div>
-                        )}
-
-                        {hasMore && <div ref={ref} className="h-4 bg-transparent w-full" />}
-
-                        {!hasMore && (
-                            <div className="text-center py-4 text-slate-600 border-t border-slate-900 text-[10px] uppercase tracking-widest">
-                                Конец протокола логов / Все данные загружены
-                            </div>
-                        )}
+                            ) : (
+                                productionItems.map((item, idx) => (
+                                    <div key={idx} className="text-[10px] flex justify-between items-center bg-slate-950/80 p-2 border border-slate-800 rounded-lg">
+                                        <span className="text-emerald-400 font-bold font-mono">🛸 {item.sku}</span>
+                                        <span className="text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{item.weight} kg</span>
+                                        <span className="text-slate-500 font-mono text-[9px]">{item.timestamp}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
 
-                {/* КОЛОНКА 3: Интерактивная карта стеллажей (ТЕПЕРЬ СПРАВА) */}
-                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col justify-between">
+                {/* КОЛОНКА 3: Интерактивная карта стеллажей (ТЕПЕРЬ СВОБОДНА СНИЗУ) */}
+                <div className="bg-slate-900 border border-slate-800 rounded p-4 flex flex-col justify-start">
                     <div>
                         <div className="border-b border-slate-800 pb-2 mb-4">
                             <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-400">Layout Matrix / Карта стеллажей</h2>
@@ -214,34 +243,8 @@ const WarehouseDashboard = () => {
                             })}
                         </div>
                     </div>
-
-                    {/* ИЗОЛИРОВАННАЯ ЗОНА ПРОИЗВОДСТВА */}
-                    <div className="mt-6 p-4 bg-sky-950/20 border border-sky-500/30 rounded-xl backdrop-blur-sm">
-                        <div className="flex justify-between items-center mb-3">
-                            <h3 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
-                                🏭 Produktionsbereich / Цех выгрузки
-                            </h3>
-                            <span className="text-[9px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-mono">
-                                Складской списан
-                            </span>
-                        </div>
-                        <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
-                            {productionItems.length === 0 ? (
-                                <div className="text-center py-3 text-[10px] text-slate-600 uppercase tracking-widest border border-dashed border-slate-800 rounded-lg">
-                                    Зона пуста. Ждем дрона...
-                                </div>
-                            ) : (
-                                productionItems.map((item, idx) => (
-                                    <div key={idx} className="text-[10px] flex justify-between items-center bg-slate-950/80 p-2 border border-slate-800 rounded-lg">
-                                        <span className="text-emerald-400 font-bold font-mono">🛸 {item.sku}</span>
-                                        <span className="text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{item.weight} kg</span>
-                                        <span className="text-slate-500 font-mono text-[9px]">{item.timestamp}</span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
                 </div>
+
 
             </main>
 
