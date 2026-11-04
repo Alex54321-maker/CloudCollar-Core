@@ -429,9 +429,32 @@ async def arrow_down_pickup(data: ActionRequest):
     payload = {"event": "UNLOAD_SUCCESS", "device": f"Delivery_Drone_{data.device_id}", "cell": target_cell, "sku": data.sku, "zone_status": "FREE"}
     await manager.broadcast(payload)
     return payload
+# 👇 ВОТ СЮДА ВСТАВЛЯЙ НОВЫЙ КУСОК КОДА КЛАДОВЩИКА:
+# =========================================================================
+# 🧑‍🔧 КНОПКА КЛАДОВЩИКА: ЗАБРАТЬ ГРУЗ ИЗ ЗОНЫ ПРОИЗВОДСТВА
+# =========================================================================
+@app.post("/api/robot/lagerarbeiter/pickup", response_model=RobotResponse)
+async def lagerarbeiter_pickup(request: dict = Body(...)):
+    """Кладовщик забирает готовый груз из производственной зоны (очищает её)"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                           VALUES ('Lagerarbeiter_01', 'WORKER_PICKUP', 'PROD_ZONE', 'ALL_CLEARED', 0.0)
+                           """)
+            conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": "Lagerarbeiter hat alle Waren aus Werk 1 erfolgreich abgeholt.",
+        "robot_id": "Lagerarbeiter_01",
+        "payload": {}
+    }
 
 
-@app.get("/api/warehouse/logs")
 @app.get("/api/warehouse/logs")
 def get_warehouse_logs(offset: int = 0, limit: int = 5):
     """Умный эндпоинт логов: строго 5 самых свежих событий (от новых к старым)"""

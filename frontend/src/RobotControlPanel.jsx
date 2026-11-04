@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
-const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cells = {}, onDroneDeliverySuccess, onAgvSuccess }) => {
-  const [loading, setLoading] = useState({ agv: false, drone: false, droneProduction: false, reset: false });
+const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cells = {}, onDroneDeliverySuccess, onAgvSuccess, onLagerarbeiterSuccess }) => {
+  const [loading, setLoading] = useState({ agv: false, drone: false, droneProduction: false, reset: false, lagerarbeiter: false });
   const [log, setLog] = useState('');
 
   // --- СОСТОЯНИЯ ДЛЯ РУЧНОГО ВВОДА ГРУЗА ---
@@ -75,7 +75,11 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cel
           };
           onDroneDeliverySuccess(fakePayload);
         }
-
+// 👇 ВОТ СЮДА ВСТАВЛЯЙ ЭТОТ КУСОК:
+        if (robotKey === 'lagerarbeiter' && typeof onLagerarbeiterSuccess === 'function') {
+          onLagerarbeiterSuccess();
+        }
+        // 👆 КОНЕЦ ВСТАВКИ
       } else {
         setLog(`Fehler: ${data.detail || 'Befehl fehlgeschlagen'}`);
       }
@@ -139,6 +143,13 @@ const RobotControlPanel = ({ robots, isOnline, onResetSuccess, selectedCell, cel
             className="w-full py-3 px-4 bg-sky-700 hover:bg-sky-600 disabled:bg-slate-800 disabled:text-slate-500 text-white font-medium rounded-xl text-sm font-mono"
           >
             {loading.droneProduction ? '⏱ DROHNE FLIEGT...' : '🛸 DROHNE: LAGER -> PRODUKTIONSHALLE'}
+          </button>
+          <button
+            disabled={loading.lagerarbeiter}
+            onClick={() => handleAction('robot/lagerarbeiter/pickup', 'lagerarbeiter')}
+            className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 text-white font-medium rounded-xl text-sm font-mono"
+          >
+            {loading.lagerarbeiter ? '⏱ АБОЧИЙ ЗАБИРАЕТ...' : '🧑‍🔧 LAGERARBEITER: ВЫГРУЗИТЬ ВЕРК 1'}
           </button>
 
           <button

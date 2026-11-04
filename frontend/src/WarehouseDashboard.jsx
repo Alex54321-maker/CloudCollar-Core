@@ -132,6 +132,10 @@ const WarehouseDashboard = () => {
                         cells={mergedCells}
                         onResetSuccess={handleResetSuccess}
                         onAgvSuccess={() => fetchDashboardData()}
+                         onLagerarbeiterSuccess={() => {
+                            fetchDashboardData();
+                            setProductionItems([]); // Полностью очищаем Цех выгрузки (Werk 1)
+                        }}
                         onDroneDeliverySuccess={(payload) => {
                             fetchDashboardData();
                             setProductionItems(prev => [...prev, {
