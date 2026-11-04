@@ -132,10 +132,12 @@ const WarehouseDashboard = () => {
                         cells={mergedCells}
                         onResetSuccess={handleResetSuccess}
                         onAgvSuccess={() => fetchDashboardData()}
-                         onLagerarbeiterSuccess={() => {
+                        onLagerarbeiterSuccess={() => {
                             fetchDashboardData();
-                            setProductionItems([]); // Полностью очищаем Цех выгрузки (Werk 1)
+                            // Берем текущий список и убираем из него самый первый элемент (индекс 0)
+                            setProductionItems(prevItems => prevItems.slice(1));
                         }}
+
                         onDroneDeliverySuccess={(payload) => {
                             fetchDashboardData();
                             setProductionItems(prev => [...prev, {

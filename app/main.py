@@ -439,10 +439,12 @@ async def lagerarbeiter_pickup(request: dict = Body(...)):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            # Внутри app/main.py в эндпоинте @app.post("/api/robot/lagerarbeiter/pickup")
             cursor.execute("""
                            INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
-                           VALUES ('Lagerarbeiter_01', 'WORKER_PICKUP', 'PROD_ZONE', 'ALL_CLEARED', 0.0)
+                           VALUES ('Lagerarbeiter_01', 'WORKER_PICKUP', 'PROD_ZONE', '1_PALLET_REMOVED', 0.0)
                            """)
+
             conn.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Datenbankfehler: {str(e)}")
