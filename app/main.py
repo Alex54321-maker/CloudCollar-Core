@@ -8,8 +8,9 @@ import logging
 import os
 import re
 import sqlite3
+import asyncio  # 🌟 ДОБАВИТЬ СЮДА
 from contextlib import asynccontextmanager  # Менеджер для lifespan
-from fastapi import FastAPI, HTTPException, Body, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Body, WebSocket, WebSocketDisconnect, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from postmarker.core import requests
@@ -506,11 +507,9 @@ async def repair_cells():
     return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized with 100 cells (A1-J10)!"}
 
 
-@app.get("/", response_class=HTMLResponse)
-async def get_warehouse_dashboard():
-    html_content = """<!DOCTYPE html><html><body><h2>Backend Server Working</h2></body></html>"""
-    return HTMLResponse(content=html_content)
-
+@# =========================================================================
+# ⚙️ ЦИФРОВОЙ ДВОЙНИК ЧПУ-СТАНКА (СИМУЛЯЦИЯ И ОБОРOTЫ RPM)
+# =========================================================================
 
 # Состояние станка (в оперативной памяти сервера)
 cnc_state = {
@@ -526,16 +525,27 @@ async def get_cnc_status():
     return cnc_state
 
 
+# 🌟 ВСТАВИТЬ СЮДА: Функция, которая сработает в фоне через 5 секунд после старта
+async def finish_cnc_processing():
+    await asyncio.sleep(5)  # Станок точит ровно 5 секунд
+    global cnc_state
+    cnc_state["status"] = "READY"  # Переключаем статус в ГОТОВО!
+    cnc_state["rpm"] = 0  # Останавливаем шпиндель
+
+
+# 🌟 ВСТАВИТЬ СЮДА СИСТЕМУ С ТАЙМЕРОМ background_tasks:
 @app.post("/api/cnc/start")
-async def start_cnc_machine(request: dict = Body(...)):
+async def start_cnc_machine(background_tasks: BackgroundTasks, request: dict = Body(...)):
     """Запускает станок на обработку детали"""
     global cnc_state
     product = request.get("product", "Болт с резьбой M10")
 
-    # Включаем станок: поднимаем обороты, меняем статус
     cnc_state["status"] = "PROCESSING"
     cnc_state["rpm"] = 1500  # Задаем рабочие обороты симуляции
     cnc_state["current_product"] = product
+
+    # Запускаем фоновый таймер на 5 секунд
+    background_tasks.add_task(finish_cnc_processing)
 
     # Добавим запись в ваши логи SQLite
     try:
@@ -558,3 +568,12 @@ async def reset_cnc_machine():
     global cnc_state
     cnc_state = {"status": "IDLE", "rpm": 0, "current_product": None}
     return {"status": "success"}
+
+
+# =========================================================================
+# 🛬 КОРНЕВОЙ ЭНДПОИНТ ПРОВЕРКИ РАБОТЫ СЕРВЕРА (ОСТАЕТСЯ САМЫМ ПОСЛЕДНИМ)
+# =========================================================================
+@app.get("/", response_class=HTMLResponse)
+async def get_warehouse_dashboard():
+    html_content = """<!DOCTYPE html><html><body><h2>Backend Server Working</h2></body></html>"""
+    return HTMLResponse(content=html_content)
