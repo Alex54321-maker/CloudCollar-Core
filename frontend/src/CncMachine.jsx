@@ -21,16 +21,45 @@ export default function CncMachine() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleStart = async () => {
-    await fetch(`${backendBaseUrl}/api/cnc/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product: 'Болт с резьбой M10' })
-    });
+    const handleStart = async () => {
+    try {
+      const res = await fetch(`${backendBaseUrl}/api/cnc/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ product: 'Болт с резьбой M10' })
+      });
+
+      if (res.ok) {
+        // Мгновенно переключаем экран в режим обработки, не дожидаясь таймера
+        setStatus('PROCESSING');
+        setRpm(1500);
+        setProduct('Болт с резьбой M10');
+      }
+    } catch (error) {
+      console.error("Ошибка запуска станка:", error);
+    }
   };
 
   const handleReset = async () => {
-    await fetch(`${backendBaseUrl}/api/cnc/reset`, { method: 'POST' });
+    try {
+      const res = await fetch(`${backendBaseUrl}/api/cnc/reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (res.ok) {
+        // Мгновенно сбрасываем параметры на экране на дефолтные
+        setStatus('IDLE');
+        setRpm(0);
+        // Оставляем имя продукта, чтобы React вывел картинку готового болта!
+      }
+    } catch (error) {
+      console.error("Ошибка сброса станка:", error);
+    }
   };
 
   return (
