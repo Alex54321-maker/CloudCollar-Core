@@ -525,7 +525,7 @@ async def get_cnc_status():
     return cnc_state
 
 
-# 🌟 ВСТАВИТЬ СЮДА: Функция, которая сработает в фоне через 5 секунд после старта
+# Функция, которая сработает в фоне через 5 секунд после старта
 async def finish_cnc_processing():
     await asyncio.sleep(5)  # Станок точит ровно 5 секунд
     global cnc_state
@@ -533,7 +533,6 @@ async def finish_cnc_processing():
     cnc_state["rpm"] = 0  # Останавливаем шпиндель
 
 
-# 🌟 ВСТАВИТЬ СЮДА СИСТЕМУ С ТАЙМЕРОМ background_tasks:
 @app.post("/api/cnc/start")
 async def start_cnc_machine(background_tasks: BackgroundTasks, request: dict = Body(...)):
     """Запускает станок на обработку детали"""
