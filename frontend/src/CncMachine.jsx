@@ -4,7 +4,7 @@ export default function CncMachine() {
   const [status, setStatus] = useState('IDLE');
   const [rpm, setRpm] = useState(0);
   const [product, setProduct] = useState(null);
-  const backendBaseUrl = 'https://onrender.com';
+  const backendBaseUrl = 'https://cloudcollar-backend.onrender.com';
 
   // Опрос состояния станка каждые 2 секунды
   useEffect(() => {
