@@ -492,20 +492,69 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/api/admin/repair-cells")
 async def repair_cells():
-    """Технический эндпоинт для ручной принудительной разметки."""
+    """Технический эндпоинт для ручной принудительной разметки на 100 ячеек."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM storage_map")
         default_cells = []
-        for row in ['A', 'B', 'C', 'D']:
-            for col in range(1, 6):
+        # Исправлено: Полная разметка матрицы 10x10
+        for row in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']:
+            for col in range(1, 11):
                 default_cells.append((f"{row}{col}",))
         cursor.executemany("INSERT INTO storage_map (cell_code) VALUES (?)", default_cells)
         conn.commit()
-    return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized with 20 cells (A1-D5)!"}
+    return {"status": "SUCCESS", "message": "Warehouse storage map successfully initialized with 100 cells (A1-J10)!"}
 
 
 @app.get("/", response_class=HTMLResponse)
 async def get_warehouse_dashboard():
     html_content = """<!DOCTYPE html><html><body><h2>Backend Server Working</h2></body></html>"""
     return HTMLResponse(content=html_content)
+
+
+# Состояние станка (в оперативной памяти сервера)
+cnc_state = {
+    "status": "IDLE",  # Может быть: IDLE, PROCESSING, READY
+    "rpm": 0,  # Обороты в минуту
+    "current_product": None
+}
+
+
+@app.get("/api/cnc/status")
+async def get_cnc_status():
+    """Отдает фронтенду текущие обороты и статус станка"""
+    return cnc_state
+
+
+@app.post("/api/cnc/start")
+async def start_cnc_machine(request: dict = Body(...)):
+    """Запускает станок на обработку детали"""
+    global cnc_state
+    product = request.get("product", "Болт с резьбой M10")
+
+    # Включаем станок: поднимаем обороты, меняем статус
+    cnc_state["status"] = "PROCESSING"
+    cnc_state["rpm"] = 1500  # Задаем рабочие обороты симуляции
+    cnc_state["current_product"] = product
+
+    # Добавим запись в ваши логи SQLite
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
+                VALUES ('CNC_SIEMENS_840', 'MANUFACTURING', 'CNC_STAGE_1', ?, 0.0)
+            """, (product,))
+            conn.commit()
+    except Exception:
+        pass
+
+    return {"status": "success", "message": f"Станок запущен. Нарезка резьбы для {product}..."}
+
+
+@app.post("/api/cnc/reset")
+async def reset_cnc_machine():
+    """Сброс станка в исходное состояние"""
+    global cnc_state
+    cnc_state = {"status": "IDLE", "rpm": 0, "current_product": None}
+    return {"status": "success"}
