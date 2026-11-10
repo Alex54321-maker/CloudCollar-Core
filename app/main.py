@@ -535,38 +535,52 @@ async def finish_cnc_processing():
 
 @app.post("/api/cnc/start")
 async def start_cnc_machine(background_tasks: BackgroundTasks, request: dict = Body(...)):
-    """Запускает станок на обработку детали"""
+    """Запускает станок на обработку детали с записью в системный лог"""
     global cnc_state
-    product = request.get("product", "Болт с резьбой M10")
+    product = request.get("product", "Gewindebolzen M10")
 
     cnc_state["status"] = "PROCESSING"
-    cnc_state["rpm"] = 1500  # Задаем рабочие обороты симуляции
+    cnc_state["rpm"] = 1500
     cnc_state["current_product"] = product
 
-    # Запускаем фоновый таймер на 5 секунд
     background_tasks.add_task(finish_cnc_processing)
 
-    # Добавим запись в ваши логи SQLite
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            # Логируем смену режима: IDLE -> RUNNING (PROCESSING)
             cursor.execute("""
-                INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight)
-                VALUES ('CNC_SIEMENS_840', 'MANUFACTURING', 'CNC_STAGE_1', ?, 0.0)
+                INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp)
+                VALUES ('CNC_SIEMENS_840', 'RUNNING', 'CNC_STAGE_1', ?, 0.0, datetime('now'))
             """, (product,))
             conn.commit()
     except Exception:
         pass
 
-    return {"status": "success", "message": f"Станок запущен. Нарезка резьбы для {product}..."}
+    return {"status": "success", "message": f"Drehmaschine gestartet. Gewindeschneiden für {product}..."}
 
 
 @app.post("/api/cnc/reset")
 async def reset_cnc_machine():
-    """Сброс станка в исходное состояние"""
+    """Сброс станка в исходное состояние с записью в системный лог RESET"""
     global cnc_state
     cnc_state = {"status": "IDLE", "rpm": 0, "current_product": None}
-    return {"status": "success"}
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # Логируем сброс режима: PROCESSING -> RESET (IDLE)
+            cursor.execute("""
+                INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp)
+                VALUES ('CNC_SIEMENS_840', 'RESET', 'CNC_STAGE_1', 'SYSTEM_RESET', 0.0, datetime('now'))
+            """)
+            conn.commit()
+    except Exception:
+        pass
+
+    return {"status": "success", "message": "CNC-Maschine erfolgreich zurückgesetzt."}
+
+
 
 
 # =========================================================================
