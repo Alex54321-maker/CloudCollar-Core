@@ -241,17 +241,20 @@ export default function CncMachine() {
                     <span className="text-[10px] text-emerald-400 uppercase block">✓ Fertiggestellt & Geprüft:</span>
                     <span className="text-sm font-bold text-white">{product}</span>
                   </div>
-                  {product.toLowerCase().includes('mutter') ? (
-                    <div className="px-3 py-2 bg-emerald-950/80 border border-emerald-500/50 rounded-lg text-emerald-300 font-bold text-xs">
-                      🔩 DIN-MUTTER READY
-                    </div>
+                                    {product.toLowerCase().includes('mutter') ? (
+                    <img
+                      src="/nut.png"
+                      alt="Fertige Mutter"
+                      className="h-12 w-24 object-contain rounded filter drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                    />
                   ) : (
                     <img
                       src="/bolt.png"
                       alt="Fertiger Bolzen"
-                      className="h-12 w-24 object-contain filter drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                      className="h-12 w-24 object-contain rounded filter drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]"
                     />
                   )}
+
                 </div>
               ) : (
                 <div className="text-center w-full text-xs text-slate-500 uppercase tracking-wider">
