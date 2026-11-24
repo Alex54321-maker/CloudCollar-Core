@@ -1,0 +1,52 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Offline 3D Triangle</title>
+  <style>body { margin: 0; overflow: hidden; background: #090d16; }</style>
+</head>
+<body>
+<script type="module">
+  import * as THREE from './three.module.js';
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 2.5, 6);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const light = new THREE.DirectionalLight(0xffffff, 2);
+  light.position.set(2, 5, 5);
+  scene.add(light);
+
+  const customGeo = new THREE.BufferGeometry();
+  const vertices = new Float32Array([
+    -1.0, 2.0, 0.0,
+     1.0, 2.0, 0.0,
+     0.0, 3.5, 0.0
+  ]);
+  customGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+  customGeo.computeVertexNormals();
+
+  const triangleMat = new THREE.MeshStandardMaterial({
+    color: 0xf43f5e,
+    side: THREE.DoubleSide,
+  });
+
+  // 6. Собираем Mesh и добавляем на сцену
+  const myTriangle = new THREE.Mesh(customGeo, triangleMat);
+  scene.add(myTriangle);
+
+  // ---> ВМЕСТО ОДНОЙ СТРОКИ renderer.render(scene, camera); ВСТАВЛЯЕМ ЭТО:
+  function animate() {
+    requestAnimationFrame(animate);
+    myTriangle.rotation.y += 0.02; // Вращение вокруг вертикальной оси Y (в радианах)
+    renderer.render(scene, camera);
+  }
+  animate();
+</script>
+</body>
+</html>
+
