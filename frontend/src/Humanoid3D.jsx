@@ -58,8 +58,8 @@ scene.fog = new THREE.FogExp2(0x1e293b, 0.0045); // Тёмно-сланцевы�
     sky.scale.setScalar(450);
     scene.add(sky);
     const skyUniforms = sky.material.uniforms;
-    skyUniforms['turbidity'].value = 10.0;
-    skyUniforms['rayleigh'].value = 1.2;
+    skyUniforms['turbidity'].value = 2.0;
+    skyUniforms['rayleigh'].value = 0.8;
     skyUniforms['mieCoefficient'].value = 0.001;
     skyUniforms['mieDirectionalG'].value = 0.7;
 
@@ -71,7 +71,7 @@ scene.fog = new THREE.FogExp2(0x1e293b, 0.0045); // Тёмно-сланцевы�
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.30;
+    scene.environmentIntensity = 0.15;
 
     // Постобработка: рендер + мягкое свечение оптики и LED (Bloom)
     const composer = new EffectComposer(renderer);
