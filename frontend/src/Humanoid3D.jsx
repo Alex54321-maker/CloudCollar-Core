@@ -33,8 +33,9 @@ export default function Humanoid3D() {
     // 1. СЦЕНА, ШЕЙДЕРНОЕ НЕБО (ATMOSPHERIC SKY) И ПОСТОБРАБОТКА (BLOOM)
     const scene = new THREE.Scene();
 // Было: scene.fog = new THREE.FogExp2(0xcbd5e1, 0.011);
-scene.fog = new THREE.FogExp2(0x1e293b, 0.0045); // Тёмно-сланцевый и в 2.5 раза прозрачнее
-
+//scene.fog = new THREE.FogExp2(0x1e293b, 0.0045); // Тёмно-сланцевый и в 2.5 раза прозрачнее
+scene.background = new THREE.Color(0x0f172a); // Глубокое ночное/индустриальное небо без белой дымки
+    // scene.fog убираем полностью!
     const camera = new THREE.PerspectiveCamera(
       45,
       container.clientWidth / container.clientHeight,
@@ -49,7 +50,7 @@ scene.fog = new THREE.FogExp2(0x1e293b, 0.0045); // Тёмно-сланцевы�
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.55;
+    renderer.toneMappingExposure = 1.05;
 
     container.appendChild(renderer.domElement);
 
@@ -1102,7 +1103,9 @@ cameraNodes[currentCamMode].getWorldQuaternion(worldCamQuat);
 camera.position.copy(worldCamPos);
 camera.quaternion.copy(worldCamQuat);
 }
-composer.render();
+    // Было: composer.render();
+    renderer.render(scene, camera);
+
 };
 animate();
 return () => {
