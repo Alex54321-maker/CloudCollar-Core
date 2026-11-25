@@ -11,8 +11,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass';
 
 export default function Humanoid3D() {
   const containerRef = useRef(null);
-  const [statusText, setStatusText] = useState('Стёпа готов! WASD — ход, Shift — бег, Q/Z — торс 360°');
-  const [equippedItem, setEquippedItem] = useState('Пусто');
+  const [statusText, setStatusText] = useState('Stepa bereit! WASD — Gehen, Shift — Laufen, Q/Z — Torso 360°');
+  const [equippedItem, setEquippedItem] = useState('Leer');
   const [isDriving, setIsDriving] = useState(false);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [activeCam, setActiveCam] = useState('orbit');
@@ -97,6 +97,7 @@ scene.background = new THREE.Color(0x0f172a); // Глубокое ночное/�
       const canvas = document.createElement('canvas');
       canvas.width = 512;
       canvas.height = 512;
+    //2 часть
       const ctx = canvas.getContext('2d');
       drawFn(ctx, 512, 512);
       const tex = new THREE.CanvasTexture(canvas);
@@ -197,6 +198,7 @@ scene.background = new THREE.Color(0x0f172a); // Глубокое ночное/�
 
     const crateTex = makeCanvasTexture((ctx, w, h) => {
       ctx.fillStyle = '#b47b44';
+      //3 часть
       ctx.fillRect(0, 0, w, h);
       ctx.strokeStyle = 'rgba(120, 72, 28, 0.35)';
       for (let y = 0; y < h; y += 6) {
@@ -295,6 +297,7 @@ const curbE = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.07, d, 3, 0.02), haz
 curbE.position.set(xMax + 0.06, 0.035, cz);
 curbN.castShadow = curbS.castShadow = curbW.castShadow = curbE.castShadow = true;
 scene.add(curbN, curbS, curbW, curbE);
+//4 часть
 const wallN = new THREE.Mesh(new THREE.BoxGeometry(w, Math.abs(depth), 0.15), pitWallMat);
 wallN.position.set(cx, depth / 2, zMin);
 const wallS = new THREE.Mesh(new THREE.BoxGeometry(w, Math.abs(depth), 0.15), pitWallMat);
@@ -395,6 +398,7 @@ const mesh = new THREE.Mesh(
 geo,
 new THREE.MeshStandardMaterial({
 map: concreteColor,
+// 3 часть
 bumpMap: concreteBump,
 bumpScale: 0.015,
 color: 0x0284c7,
@@ -487,12 +491,14 @@ crateMat
 boxMesh.castShadow = true;
 boxMesh.position.set(-2.0, 1.15, 3.5);
 scene.add(boxMesh);
-items.push({ id: 'box', name: 'Коробка SKU-6500', mesh: boxMesh, halfH: 0.19, twoHands: true });
+// Коробка
+items.push({ id: 'box', name: 'Karton SKU-6500', mesh: boxMesh, halfH: 0.19, twoHands: true });
 const palletGroup = new THREE.Group();
 const palletMat = new THREE.MeshStandardMaterial({ map: woodTex, bumpMap: concreteBump, bumpScale: 0.01, roughness: 0.78 });
 [-0.42, 0, 0.42].forEach((px) => {
 const runner = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.11, 1.1, 2, 0.01), palletMat);
 runner.position.set(px, 0.055, 0);
+//6часть
 runner.castShadow = true;
 palletGroup.add(runner);
 });
@@ -513,7 +519,7 @@ sBlade.position.y = -0.35;
 shovelGroup.add(sShaft, sBlade);
 shovelGroup.position.set(1.7, 1.46, 3.5);
 scene.add(shovelGroup);
-items.push({ id: 'shovel', name: 'Лопата', mesh: shovelGroup, halfH: 0.5, twoHands: false });
+items.push({ id: 'shovel', name: 'Schaufel', mesh: shovelGroup, halfH: 0.5, twoHands: false });
 const hammerGroup = new THREE.Group();
 const hHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.42, 14), new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.55 }));
 const hHead = new THREE.Mesh(new RoundedBoxGeometry(0.18, 0.065, 0.065, 3, 0.012), new THREE.MeshStandardMaterial({ color: 0x475569, bumpMap: brushedMetalBump, bumpScale: 0.01, metalness: 0.9, roughness: 0.2 }));
@@ -521,7 +527,7 @@ hHead.position.y = 0.2;
 hammerGroup.add(hHandle, hHead);
 hammerGroup.position.set(2.3, 1.17, 3.5);
 scene.add(hammerGroup);
-items.push({ id: 'hammer', name: 'Молоток', mesh: hammerGroup, halfH: 0.21, twoHands: false });
+items.push({ id: 'hammer', name: 'Hammer', mesh: hammerGroup, halfH: 0.21, twoHands: false });
 // 6. ДЕТАЛИЗИРОВАННЫЙ 3D-ШТАБЕЛЁР
 const forklift = new THREE.Group();
 forklift.position.set(5.5, 0, 5.5);
@@ -592,6 +598,7 @@ const forksGroup = new THREE.Group();
 forksGroup.position.set(0, 0.2, 1.15);
 const forkMat = new THREE.MeshStandardMaterial({
 color: 0x94a3b8,
+//7часть
 bumpMap: brushedMetalBump,
 bumpScale: 0.012,
 metalness: 0.88,
@@ -691,6 +698,7 @@ const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.078, 0.12, 20), 
 neck.position.set(0, 0.60, 0);
 torsoGroup.add(neck);
 [-0.045, 0.045].forEach((nx) => {
+// 8часть
 const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.11, 10), carbonMat);
 piston.position.set(nx, 0.60, -0.04);
 torsoGroup.add(piston);
@@ -790,6 +798,7 @@ endPivot.add(toe);
 digits.push(toe);
 }
 } else {
+// 8 часть
 const wrist = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.58, 16, 16), titaniumMat);
 endPivot.add(wrist);
 const palm = new THREE.Mesh(new RoundedBoxGeometry(0.084, 0.08, 0.032, 3, 0.01), carbonMat);
@@ -889,6 +898,7 @@ let animId;
 const animate = () => {
 animId = requestAnimationFrame(animate);
 const dt = Math.min(clock.getDelta(), 0.08);
+// 10 часть
 idleTime += dt;
 if (actionTriggerRef.current === 'TOGGLE_ITEM') {
 actionTriggerRef.current = null;
@@ -900,8 +910,8 @@ const dropZ = Math.max(-14.2, Math.min(14.2, robot.position.z + Math.cos(worldAn
 const surfaceY = getFloorHeight(dropX, dropZ, true);
 heldItem.mesh.position.set(dropX, surfaceY + heldItem.halfH, dropZ);
 heldItem.mesh.rotation.set(0, worldAngle, 0);
-setEquippedItem('Пусто');
-setStatusText(surfaceY < 0 ? `Бросил ${heldItem.name} в яму!` : `Положил: ${heldItem.name}`);
+setEquippedItem('Leer');
+setStatusText(surfaceY < 0 ? `${heldItem.name} in die Grube geworfen!` : `Abgelegt: ${heldItem.name}`);
 
 heldItem = null;
 } else if (!inForklift) {
@@ -923,10 +933,9 @@ closest.mesh.position.set(0, -0.1, 0.15);
 closest.mesh.rotation.set(Math.PI / 2, 0, 0);
 }
 setEquippedItem(closest.name);
-setStatusText(`Стёпа взял: ${closest.name}`);
-
+setStatusText(`Stepa hat aufgenommen: ${closest.name}`);
 } else {
-setStatusText('Рядом нет предметов');
+setStatusText('Keine Gegenstände in der Nähe');
 }
 }
 }
@@ -940,7 +949,7 @@ torsoGroup.rotation.x = 0;
 inForklift = false;
 setIsDriving(false);
 setSpeedKmh(0);
-setStatusText('Стёпа вышел из штабелёра');
+setStatusText('Stepa ist aus dem Stapler ausgestiegen');
 } else if (robot.position.distanceTo(forklift.position) < 2.8) {
 forklift.add(robot);
 robot.position.set(0, 0.35, -0.15);
@@ -949,10 +958,9 @@ torsoGroup.rotation.y = 0;
 torsoGroup.rotation.x = 0;
 inForklift = true;
 setIsDriving(true);
-setStatusText('За рулём! W — газ, Space — тормоз, A/D — руль');
+setStatusText('Am Steuer! W — Gas, Space — Bremse, A/D — Lenkung');
 } else {
-setStatusText('Подойди ближе к штабелёру');
-}
+setStatusText('Geh näher an den Stapler heran');}
 }
 const throttle = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0);
 const steer = (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) - (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0);
@@ -988,9 +996,9 @@ forkliftSpeed = -forkliftSpeed * 0.3;
 }
 if (forklift.position.y < -2.2) {
 forklift.position.set(5.5, 0, 5.5);
+// 11 часть
 forkliftSpeed = 0;
-setStatusText('Штабелёр упал в яму! Эвакуация на базу');
-}
+setStatusText('Stapler ist in die Grube gefallen! Rückkehr zur Basis');}
 if (keys['KeyR']) forksGroup.position.y = Math.min(1.6, forksGroup.position.y + 1.1 * dt);
 if (keys['KeyT']) forksGroup.position.y = Math.max(0.2, forksGroup.position.y - 1.1 * dt);
 setSpeedKmh(Math.round(Math.abs(forkliftSpeed) * 3.6));
@@ -1069,7 +1077,7 @@ isGrounded = true;
 if (robot.position.y < -2.6) {
 robot.position.set(0, 0.5, 0);
 velocityY = 0;
-setStatusText('Стёпа упал в глубокую яму! Респавн в центре');
+setStatusText('Stepa ist in eine tiefe Grube gefallen! Respawn im Zentrum');
 }
 }
 // ПЕРЕКЛЮЧЕНИЕ МЕЖДУ ОБЗОРНОЙ КАМЕРОЙ (0) И 5 ОБЪЕКТИВАМИ СТЁПЫ (1-5)
@@ -1090,6 +1098,7 @@ activeActor.position.y + 6.2,
 activeActor.position.z + 13.0
 );
 } else {
+ // 12 част
 const camDelta = new THREE.Vector3().subVectors(targetPos, controls.target).multiplyScalar(Math.min(dt * 5, 1));
 controls.target.add(camDelta);
 camera.position.add(camDelta);
@@ -1119,67 +1128,69 @@ if (container.contains(renderer.domElement)) container.removeChild(renderer.domE
 };
 }, []);
 const camButtons = [
-{ id: 'orbit', label: '🎥 Обзор (0)' },
-{ id: 'front', label: '👁 Перед (1)' },
-{ id: 'back', label: '👁 Зад (2)' },
-{ id: 'left', label: '👁 Лево (3)' },
-{ id: 'right', label: '👁 Право (4)' },
-{ id: 'top', label: '🛰 Верх (5)' }
+  { id: 'orbit', label: '🎥 Übersicht (0)' },
+  { id: 'front', label: '👁 Vorne (1)' },
+  { id: 'back', label: '👁 Hinten (2)' },
+  { id: 'left', label: '👁 Links (3)' },
+  { id: 'right', label: '👁 Rechts (4)' },
+  { id: 'top', label: '🛰 Oben (5)' }
 ];
-  return (
-    <div style={{ position: 'relative', width: '100%', height: 'calc(100vh - 50px)' }}>
-      <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 10, backgroundColor: 'rgba(15, 23, 42, 0.88)', border: '1px solid #334155', borderRadius: '10px', padding: '12px 16px', color: '#f8fafc', fontFamily: 'sans-serif', maxWidth: '460px' }}>
-        <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold' }}>
-          CLOUD-COLLAR 4.0 • РОБОТ СТЁПА (5 КАМЕР • 20 ПАЛЬЦЕВ)
-        </div>
-        <div style={{ fontSize: '13px', margin: '6px 0' }}>
-          {statusText}
-        </div>
-        <div style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '8px', lineHeight: '1.4' }}>
-          • <b>Стёпа:</b> WASD — шаг, <b>Shift</b> — бег, <b>Q / Z</b> — торс 360°, Space — прыжок<br />
-          • <b>Штабелёр:</b> <b>W</b> — газ, <b>Space</b> — тормоз, R/T — вилы {isDriving && <b style={{ color: '#22c55e' }}>({speedKmh} км/ч)</b>}
-        </div>
-        <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '8px' }}>
-          В руках: <b style={{ color: '#f59e0b' }}>{equippedItem}</b>
-        </div>
 
-        <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
-          {camButtons.map((btn) => (
-            <button
-              key={btn.id}
-              onClick={() => switchCamera(btn.id)}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '5px',
-                border: '1px solid #475569',
-                backgroundColor: activeCam === btn.id ? '#0284c7' : '#1e293b',
-                color: '#f8fafc',
-                fontSize: '11px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              {btn.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => { actionTriggerRef.current = 'TOGGLE_ITEM'; }}
-            style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#38bdf8', color: '#0f172a', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            ✋ Взять / Положить (E)
-          </button>
-          <button
-            onClick={() => { driveTriggerRef.current = true; }}
-            style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: isDriving ? '#ef4444' : '#f97316', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            🚜 {isDriving ? 'Выйти (F)' : 'Штабелёр (F)'}
-          </button>
-        </div>
+return (
+  <div style={{ position: 'relative', width: '100%', height: 'calc(100vh - 50px)' }}>
+    <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 10, backgroundColor: 'rgba(15, 23, 42, 0.88)', border: '1px solid #334155', borderRadius: '10px', padding: '12px 16px', color: '#f8fafc', fontFamily: 'sans-serif', maxWidth: '460px' }}>
+      <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold' }}>
+        CLOUD-COLLAR 4.0 • ROBOTER STEPA (5 KAMERAS • 20 FINGER)
       </div>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <div style={{ fontSize: '13px', margin: '6px 0' }}>
+        {statusText}
+      </div>
+      <div style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '8px', lineHeight: '1.4' }}>
+        • <b>Stepa:</b> WASD — Gehen, <b>Shift</b> — Laufen, <b>Q / Z</b> — Torso 360°, Space — Springen<br />
+        • <b>Stapler:</b> <b>W</b> — Gas, <b>Space</b> — Bremse, R/T — Gabeln {isDriving && <b style={{ color: '#22c55e' }}>({speedKmh} km/h)</b>}
+      </div>
+      <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '8px' }}>
+        In den Händen: <b style={{ color: '#f59e0b' }}>{equippedItem}</b>
+      </div>
+
+      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        {camButtons.map((btn) => (
+          <button
+            key={btn.id}
+            onClick={() => switchCamera(btn.id)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: '5px',
+              border: '1px solid #475569',
+              backgroundColor: activeCam === btn.id ? '#0284c7' : '#1e293b',
+              color: '#f8fafc',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => { actionTriggerRef.current = 'TOGGLE_ITEM'; }}
+          style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#38bdf8', color: '#0f172a', fontWeight: 'bold', cursor: 'pointer' }}
+        >
+          ✋ Nehmen / Ablegen (E)
+        </button>
+        <button
+          onClick={() => { driveTriggerRef.current = true; }}
+          style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: isDriving ? '#ef4444' : '#f97316', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}
+        >
+          🚜 {isDriving ? 'Aussteigen (F)' : 'Stapler (F)'}
+        </button>
+      </div>
     </div>
-  );
+    <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+  </div>
+);
+
 }
