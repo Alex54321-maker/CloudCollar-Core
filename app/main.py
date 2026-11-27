@@ -456,6 +456,28 @@ async def lagerarbeiter_pickup(request: dict = Body(...)):
         "robot_id": "Lagerarbeiter_01",
         "payload": {}
     }
+@app.post("/api/humanoid/transfer")
+async def log_humanoid_transfer(request: dict = Body(...)):
+    """Записывает действия Стёпы и штабелёра в таблицу transfer_logs"""
+    actor = request.get("actor", "Stepa")
+    item = request.get("item", "Unknown")
+    action = request.get("action", "MOVE")
+    pos_x = request.get("pos_x", 0.0)
+    pos_z = request.get("pos_z", 0.0)
+    coords = f"X:{pos_x} Z:{pos_z}"
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO transfer_logs (operator_id, action_type, target_cell, sku, weight, timestamp)
+                VALUES (?, ?, ?, ?, 0.0, datetime('now'))
+            """, (actor, action, coords, item))
+            conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Log error: {str(e)}")
+
+    return {"status": "success"}
 
 
 @app.get("/api/warehouse/logs")

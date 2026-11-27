@@ -12,32 +12,51 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass';
 export default function Humanoid3D() {
   const containerRef = useRef(null);
   const virtualKeysRef = useRef({});
+  // Отправка события на локальный FastAPI
+  const sendTransferLog = async (actor, itemName, action, x, z) => {
+    try {
+      await fetch('http://localhost:8000/api/humanoid/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor,
+          item: itemName,
+          action,
+          pos_x: Number(x.toFixed(2)),
+          pos_z: Number(z.toFixed(2))
+        })
+      });
+      fetchLogs();
+    } catch (err) {
+      console.warn('Backend offline (localhost:8000):', err.message);
+    }
+  };
 
 // Отправка события на локальный FastAPI (работает без интернета по 127.0.0.1:8000)
-const sendTransferLog = async (actor, itemName, action, x, z) => {
-  try {
-    await fetch('http://127.0.0', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        actor,
-        item: itemName,
-        action,
-        pos_x: Number(x.toFixed(2)),
-        pos_z: Number(z.toFixed(2))
-      })
-    });
-  } catch (err) {
-    // Если main.py сейчас не запущен, 3D-сцена продолжит работать без ошибок
-    console.warn('Backend offline (127.0.0.1:8000):', err.message);
-  }
-};
+
 
   const [statusText, setStatusText] = useState('Stepa bereit! WASD — Gehen, Shift — Laufen, Q/Z — Torso 360°');
   const [equippedItem, setEquippedItem] = useState('Leer');
   const [isDriving, setIsDriving] = useState(false);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [activeCam, setActiveCam] = useState('orbit');
+  const [logs, setLogs] = useState([]);
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/warehouse/logs');
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data);
+      }
+    } catch (err) {
+      console.warn('Logs offline:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
 
   const actionTriggerRef = useRef(null);
   const driveTriggerRef = useRef(false);
@@ -1303,6 +1322,30 @@ return (
         </button>
       </div>
 </div>    {/* ВСТАВЛЯЙ D-PAD СЮДА (сразу перед <div ref={containerRef} ... />) */}
+            {/* ЖИВОЙ ЖУРНАЛ SQLITE В HUD (ПРАВЫЙ ВЕРХНИЙ УГОЛ) */}
+      <div style={{ position: 'absolute', top: 14, right: 14, zIndex: 10, backgroundColor: 'rgba(15, 23, 42, 0.88)', border: '1px solid #334155', borderRadius: '10px', padding: '10px 14px', color: '#f8fafc', fontFamily: 'monospace', width: '320px', fontSize: '11px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', borderBottom: '1px solid #334155', paddingBottom: '4px' }}>
+          <span style={{ color: '#10b981', fontWeight: 'bold' }}>📊 SQLITE LIVE-LOG</span>
+          <button onClick={fetchLogs} style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #475569', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px' }}>
+            🔄 Sync
+          </button>
+        </div>
+        {logs.length === 0 ? (
+          <div style={{ color: '#64748b' }}>Keine Einträge (Backend prüfen)</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {logs.map((log, idx) => (
+              <div key={log.id || idx} style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: 'rgba(30, 41, 59, 0.7)', padding: '4px 6px', borderRadius: '4px' }}>
+                <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{log.operator_id}</span>
+                <span style={{ color: '#f59e0b' }}>{log.action_type}</span>
+                <span style={{ color: '#cbd5e1' }}>{log.sku}</span>
+                <span style={{ color: '#94a3b8' }}>{log.target_cell}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
     <div style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 44px)', gap: '6px', backgroundColor: 'rgba(15, 23, 42, 0.85)', padding: '10px', borderRadius: '12px', border: '1px solid #334155', userSelect: 'none' }}>
       <button onPointerDown={() => { virtualKeysRef.current['KeyR'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyR'] = false; }} style={{ gridColumn: 1, backgroundColor: '#1e293b', color: '#38bdf8', border: '1px solid #475569', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>R↑</button>
       <button onPointerDown={() => { virtualKeysRef.current['KeyW'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyW'] = false; }} style={{ gridColumn: 2, backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', height: '40px', fontWeight: 'bold', cursor: 'pointer' }}>▲</button>
