@@ -11,6 +11,28 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass';
 
 export default function Humanoid3D() {
   const containerRef = useRef(null);
+  const virtualKeysRef = useRef({});
+
+// Отправка события на локальный FastAPI (работает без интернета по 127.0.0.1:8000)
+const sendTransferLog = async (actor, itemName, action, x, z) => {
+  try {
+    await fetch('http://127.0.0', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actor,
+        item: itemName,
+        action,
+        pos_x: Number(x.toFixed(2)),
+        pos_z: Number(z.toFixed(2))
+      })
+    });
+  } catch (err) {
+    // Если main.py сейчас не запущен, 3D-сцена продолжит работать без ошибок
+    console.warn('Backend offline (127.0.0.1:8000):', err.message);
+  }
+};
+
   const [statusText, setStatusText] = useState('Stepa bereit! WASD — Gehen, Shift — Laufen, Q/Z — Torso 360°');
   const [equippedItem, setEquippedItem] = useState('Leer');
   const [isDriving, setIsDriving] = useState(false);
@@ -262,13 +284,18 @@ scene.background = new THREE.Color(0x0f172a); // Глубокое ночное/�
     });
     const pitBottomMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.95 });
     const hazardMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.45, metalness: 0.1 });
+// Добавь сразу перед const addFloorPatch = ...
+const walkableSurfaces = [];
 
-    const addFloorPatch = (w, d, x, z) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), floorMat);
-      m.position.set(x, -0.1, z);
-      m.receiveShadow = true;
-      scene.add(m);
-    };
+const addFloorPatch = (w, d, x, z) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), floorMat);
+  m.position.set(x, -0.1, z);
+  m.receiveShadow = true;
+  scene.add(m);
+  walkableSurfaces.push(m); // <-- регистрируем пол для тапа по тачпаду
+};
+
+
 
     addFloorPatch(9.0, 30, -10.5, 0);
 
@@ -385,31 +412,33 @@ buildRack(-8.2, -13.5, 0);
 buildRack(11.5, -13.5, 0);
 buildRack(-13.5, -8.5, Math.PI / 2);
 const buildRamp = (xMin, xMax, zMin, zMax, maxH) => {
-const w = xMax - xMin;
-const d = zMax - zMin;
-const shape = new THREE.Shape();
-shape.moveTo(0, 0);
-shape.lineTo(d, 0);
-shape.lineTo(d, maxH);
-shape.closePath();
-const geo = new THREE.ExtrudeGeometry(shape, { depth: w - 0.04, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 3 });
-geo.rotateY(Math.PI / 2);
-const mesh = new THREE.Mesh(
-geo,
-new THREE.MeshStandardMaterial({
-map: concreteColor,
-// 3 часть
-bumpMap: concreteBump,
-bumpScale: 0.015,
-color: 0x0284c7,
-roughness: 0.65
-})
-);
-mesh.position.set(xMin + 0.02, 0, zMax);
-mesh.castShadow = true;
-mesh.receiveShadow = true;
-scene.add(mesh);
+  const w = xMax - xMin;
+  const d = zMax - zMin;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(d, 0);
+  shape.lineTo(d, maxH);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: w - 0.04, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 3 });
+  geo.rotateY(Math.PI / 2);
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({
+      map: concreteColor,
+      // 3 часть
+      bumpMap: concreteBump,
+      bumpScale: 0.015,
+      color: 0x0284c7,
+      roughness: 0.65
+    })
+  );
+  mesh.position.set(xMin + 0.02, 0, zMax);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  walkableSurfaces.push(mesh); // <-- ВОТ ЗДЕСЬ, в самом конце функции перед };
 };
+
 buildRamp(2.0, 4.0, -2.5, 1.5, 1.1);
 buildRamp(-9.5, -7.5, 3.0, 7.0, 0.9);
 const stairGroup = new THREE.Group();
@@ -427,12 +456,14 @@ step.position.set(0, stepH / 2, -3.25 - i * 0.5);
 step.castShadow = true;
 step.receiveShadow = true;
 stairGroup.add(step);
+  walkableSurfaces.push(step);
 }
 const platform = new THREE.Mesh(new RoundedBoxGeometry(3.6, 1.5, 2.5, 3, 0.03), stepMat);
 platform.position.set(0, 0.75, -7.25);
 platform.castShadow = true;
 platform.receiveShadow = true;
 stairGroup.add(platform);
+walkableSurfaces.push(platform); // <-- 2. Сразу после stairGroup.add(platform)
 const railMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.5, roughness: 0.35 });
 [-1.72, 1.72].forEach((rx) => {
 [-6.1, -8.4].forEach((rz) => {
@@ -870,6 +901,7 @@ const keys = {};
 let velocityY = 0;
 let isGrounded = true;
 let heldItem = null;
+let carriedPallet = null;
 let inForklift = false;
 let walkPhase = 0;
 let idleTime = 0;
@@ -891,6 +923,41 @@ if (camKeyMap[e.code]) switchCamera(camKeyMap[e.code]);
 const onKeyUp = (e) => { keys[e.code] = false; };
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+let navTarget = null;
+
+const targetRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.22, 0.34, 32),
+  new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+);
+targetRing.rotation.x = -Math.PI / 2;
+targetRing.visible = false;
+scene.add(targetRing);
+
+let downPos = { x: 0, y: 0 };
+const onPointerDown = (e) => { downPos = { x: e.clientX, y: e.clientY }; };
+const onPointerUp = (e) => {
+  if (e.button !== 0) return;
+  if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObjects(walkableSurfaces, false);
+  if (hits.length > 0) {
+    const pt = hits[0].point;
+    if (!isBlocked(pt.x, pt.z, inForklift ? 0.85 : 0.4)) {
+      navTarget = pt.clone();
+      targetRing.position.set(pt.x, pt.y + 0.03, pt.z);
+      targetRing.visible = true;
+      setStatusText(`Ziel gesetzt: (${pt.x.toFixed(1)}, ${pt.z.toFixed(1)})`);
+    }
+  }
+};
+renderer.domElement.addEventListener('pointerdown', onPointerDown);
+renderer.domElement.addEventListener('pointerup', onPointerUp);
+
 const clock = new THREE.Clock();
 const worldCamPos = new THREE.Vector3();
 const worldCamQuat = new THREE.Quaternion();
@@ -912,6 +979,8 @@ heldItem.mesh.position.set(dropX, surfaceY + heldItem.halfH, dropZ);
 heldItem.mesh.rotation.set(0, worldAngle, 0);
 setEquippedItem('Leer');
 setStatusText(surfaceY < 0 ? `${heldItem.name} in die Grube geworfen!` : `Abgelegt: ${heldItem.name}`);
+
+sendTransferLog('Stepa', heldItem.name, 'DROP', dropX, dropZ);
 
 heldItem = null;
 } else if (!inForklift) {
@@ -962,8 +1031,28 @@ setStatusText('Am Steuer! W — Gas, Space — Bremse, A/D — Lenkung');
 } else {
 setStatusText('Geh näher an den Stapler heran');}
 }
-const throttle = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0);
-const steer = (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) - (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0);
+const isPressed = (code) => Boolean(keys[code] || virtualKeysRef.current[code]);
+let throttle = (isPressed('KeyW') || isPressed('ArrowUp') ? 1 : 0) - (isPressed('KeyS') || isPressed('ArrowDown') ? 1 : 0);
+let steer = (isPressed('KeyA') || isPressed('ArrowLeft') ? 1 : 0) - (isPressed('KeyD') || isPressed('ArrowRight') ? 1 : 0);
+
+if (throttle !== 0 || steer !== 0) {
+  navTarget = null;
+  targetRing.visible = false;
+} else if (navTarget) {
+  const actor = inForklift ? forklift : robot;
+  const dx = navTarget.x - actor.position.x;
+  const dz = navTarget.z - actor.position.z;
+  if (Math.hypot(dx, dz) < 0.35) {
+    navTarget = null;
+    targetRing.visible = false;
+  } else {
+    let angleDiff = Math.atan2(dx, dz) - actor.rotation.y;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    if (Math.abs(angleDiff) > 0.12) steer = Math.sign(angleDiff);
+    if (Math.abs(angleDiff) < 0.85) throttle = 1;
+  }
+}
 if (inForklift) {
 const isBraking = Boolean(keys['Space']);
 const maxSpeed = 11.5;
@@ -999,8 +1088,33 @@ forklift.position.set(5.5, 0, 5.5);
 // 11 часть
 forkliftSpeed = 0;
 setStatusText('Stapler ist in die Grube gefallen! Rückkehr zur Basis');}
-if (keys['KeyR']) forksGroup.position.y = Math.min(1.6, forksGroup.position.y + 1.1 * dt);
-if (keys['KeyT']) forksGroup.position.y = Math.max(0.2, forksGroup.position.y - 1.1 * dt);
+if (isPressed('KeyR')) forksGroup.position.y = Math.min(1.6, forksGroup.position.y + 1.1 * dt);
+if (isPressed('KeyT')) forksGroup.position.y = Math.max(0.2, forksGroup.position.y - 1.1 * dt);
+
+const forkTipWorld = new THREE.Vector3(0, 0, 0.65);
+forksGroup.localToWorld(forkTipWorld);
+
+if (!carriedPallet) {
+  if (forksGroup.position.y <= 0.32 && forkTipWorld.distanceTo(palletGroup.position) < 1.1) {
+    forksGroup.attach(palletGroup);
+    palletGroup.position.set(0, 0.03, 0.55);
+    palletGroup.rotation.set(0, 0, 0);
+    carriedPallet = palletGroup;
+    items.forEach((it) => {
+      if (it.mesh.parent === scene && it.mesh.position.distanceTo(forkTipWorld) < 1.3 && it.mesh.position.y > 0.1) {
+        palletGroup.attach(it.mesh);
+      }
+    });
+    setStatusText('Europalette auf die Gabeln geladen! (R — Heben)');
+    sendTransferLog('Forklift', 'Europalette', 'PICKUP', forklift.position.x, forklift.position.z);
+  }
+} else if (forksGroup.position.y <= 0.22 && isPressed('KeyE')) {
+  scene.attach(palletGroup);
+  palletGroup.position.y = getFloorHeight(palletGroup.position.x, palletGroup.position.z, false);
+  carriedPallet = null;
+  setStatusText('Europalette abgestellt!');
+  sendTransferLog('Forklift', 'Europalette', 'DROP', palletGroup.position.x, palletGroup.position.z);
+}
 setSpeedKmh(Math.round(Math.abs(forkliftSpeed) * 3.6));
 } else {
 const isRunning = Boolean(keys['ShiftLeft'] || keys['ShiftRight']);
@@ -1188,6 +1302,14 @@ return (
           🚜 {isDriving ? 'Aussteigen (F)' : 'Stapler (F)'}
         </button>
       </div>
+</div>    {/* ВСТАВЛЯЙ D-PAD СЮДА (сразу перед <div ref={containerRef} ... />) */}
+    <div style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 10, display: 'grid', gridTemplateColumns: 'repeat(3, 44px)', gap: '6px', backgroundColor: 'rgba(15, 23, 42, 0.85)', padding: '10px', borderRadius: '12px', border: '1px solid #334155', userSelect: 'none' }}>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyR'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyR'] = false; }} style={{ gridColumn: 1, backgroundColor: '#1e293b', color: '#38bdf8', border: '1px solid #475569', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>R↑</button>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyW'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyW'] = false; }} style={{ gridColumn: 2, backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', height: '40px', fontWeight: 'bold', cursor: 'pointer' }}>▲</button>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyT'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyT'] = false; }} style={{ gridColumn: 3, backgroundColor: '#1e293b', color: '#38bdf8', border: '1px solid #475569', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>T↓</button>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyA'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyA'] = false; }} style={{ gridColumn: 1, backgroundColor: '#1e293b', color: '#fff', border: '1px solid #475569', borderRadius: '6px', height: '40px', fontWeight: 'bold', cursor: 'pointer' }}>◄</button>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyS'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyS'] = false; }} style={{ gridColumn: 2, backgroundColor: '#1e293b', color: '#fff', border: '1px solid #475569', borderRadius: '6px', height: '40px', fontWeight: 'bold', cursor: 'pointer' }}>▼</button>
+      <button onPointerDown={() => { virtualKeysRef.current['KeyD'] = true; }} onPointerUp={() => { virtualKeysRef.current['KeyD'] = false; }} style={{ gridColumn: 3, backgroundColor: '#1e293b', color: '#fff', border: '1px solid #475569', borderRadius: '6px', height: '40px', fontWeight: 'bold', cursor: 'pointer' }}>►</button>
     </div>
     <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
   </div>
